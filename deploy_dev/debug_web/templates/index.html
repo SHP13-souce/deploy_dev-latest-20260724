@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HNU Vision Debug</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark">HNU</span><div><b>Vision Console</b><small>SP whole-vehicle auto aim</small></div></div>
+    <div class="header-status"><span id="frame-rate">-- FPS</span><span id="connection" class="pill waiting">连接中</span></div>
+  </header>
+  <div id="safety" class="safety">安全状态载入中</div>
+  <main>
+    <section class="left-column">
+      <article class="panel controls-panel">
+        <div class="panel-title"><h1>视图</h1><div id="view-switches" class="view-switches">
+          <label><input type="checkbox" data-view="raw" checked> 原图</label>
+          <label><input type="checkbox" data-view="annotated" checked> 检测标注</label>
+          <label><input type="checkbox" data-view="gray"> 灰度</label>
+          <label><input type="checkbox" data-view="binary"> 二值</label>
+        </div></div>
+      </article>
+      <article class="panel video-panel">
+        <div class="panel-title"><h1>实时视觉</h1><button id="fullscreen" type="button">全屏</button></div>
+        <div id="views" class="views">
+          <div class="video-view" data-view="raw"><b>原图</b><img id="stream" src="/video/raw" alt="原图"></div>
+          <div class="video-view" data-view="annotated"><b>检测标注</b><img src="/video/annotated" alt="检测标注"></div>
+        </div>
+        <div id="video-meta" class="video-meta">等待相机画面</div>
+      </article>
+      <article class="panel chart-panel">
+        <div class="panel-title"><h1>最近 20 秒</h1><div class="legend"><span class="total">总延迟</span><span class="detect">检测</span><span class="nis">NIS</span></div></div>
+        <canvas id="chart"></canvas>
+      </article>
+    </section>
+    <aside class="right-column">
+      <section><h2>核心状态</h2><div id="core-cards" class="cards core"></div></section>
+      <section><h2>感知与解算</h2><div id="vision-grid" class="metric-grid"></div></section>
+      <section><h2>整车 EKF</h2><div id="state-grid" class="metric-grid compact"></div></section>
+      <section><h2>瞄准与云台</h2><div id="aim-grid" class="metric-grid"></div></section>
+      <section><h2>耗时分段</h2><div id="latency-bars" class="latency-bars"></div></section>
+      <section class="tuning"><div class="section-title"><h2>运行参数</h2><span id="parameter-status">读取中</span></div>
+        <div id="parameter-form" class="parameter-form"></div>
+        <div class="parameter-actions"><button id="reload-parameters" type="button">重新读取</button><button id="apply-parameters" type="button">临时应用</button><button id="save-parameters" class="primary" type="button">确认保存</button></div>
+        <p>仅开放感知与瞄准参数。控制、串口、MPC、FireGate 和自动开火不能在网页修改。</p>
+      </section>
+      <details><summary>完整 JSON</summary><pre id="raw">等待发布数据...</pre></details>
+    </aside>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

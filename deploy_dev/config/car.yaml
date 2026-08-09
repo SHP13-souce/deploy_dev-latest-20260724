@@ -1,0 +1,34 @@
+# 实车部署配置
+# 敌方颜色: red = 打红方, blue = 打蓝方
+
+camera_id: 0
+camera_width: 1440
+camera_height: 1080
+
+enemy_color: red
+
+model_path: assets/models/hebei_at_nn/praysky_coord_noe2e_0331_640x640.onnx
+conf_threshold: 0.25
+
+# 相机内参 (待标定)
+fx: 1100.0
+fy: 1100.0
+cx: 720.0
+cy: 540.0
+
+# EKF 参数 (默认值通常合适)
+ekf_position_sigma: 0.01
+ekf_velocity_sigma: 0.5
+ekf_measurement_sigma: 0.05
+predict_time: 0.05
+max_lost_time: 0.30
+
+# 串口 (实车通常 /dev/ttyUSB0)
+serial_device: /dev/ttyUSB0
+serial_baud: 115200
+serial_enabled: true
+
+# 开火条件
+fire_distance_max: 8.0
+fire_yaw_tol: 0.05
+show_window: false
