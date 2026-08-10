@@ -297,6 +297,15 @@ void VestTracker::updateMotionEstimate(InternalTrack& track,
         return;
     }
 
+    // Validate float range
+    const double max_float = static_cast<double>(std::numeric_limits<float>::max());
+    if (std::abs(velocity_x) > max_float ||
+        std::abs(velocity_y) > max_float ||
+        std::abs(predicted_x) > max_float ||
+        std::abs(predicted_y) > max_float) {
+        return;
+    }
+
     // Success: write back real estimates
     track.output.velocity = cv::Point2f(
         static_cast<float>(velocity_x),
