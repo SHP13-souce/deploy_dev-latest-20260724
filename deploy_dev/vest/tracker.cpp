@@ -1,6 +1,7 @@
 #include "vest/tracker.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -241,8 +242,74 @@ std::vector<VestTracker::AssociationMatch> VestTracker::associate(
     return accepted_matches;
 }
 
+void VestTracker::updateMotionEstimate(InternalTrack& track,
+                                       const DetectedVest& detection) {
+    // Handle invalid new center: cannot use detection.center for prediction
+    if (!std::isfinite(detection.center.x) || !std::isfinite(detection.center.y)) {
+        track.output.velocity = cv::Point2f(0.0F, 0.0F);
+
+        if (std::isfinite(track.output.center.x) && std::isfinite(track.output.center.y)) {
+            track.output.predicted_center = track.output.center;
+        } else {
+            track.output.predicted_center = cv::Point2f(0.0F, 0.0F);
+        }
+        return;
+    }
+
+    // Fallback: zero velocity, prediction at current detection position
+    track.output.velocity = cv::Point2f(0.0F, 0.0F);
+    track.output.predicted_center = detection.center;
+
+    // Check old center is finite
+    if (!std::isfinite(track.output.center.x) || !std::isfinite(track.output.center.y)) {
+        return;
+    }
+
+    // Compute time delta in seconds
+    const double dt_sec = std::chrono::duration<double>(
+        detection.timestamp - track.output.timestamp).count();
+
+    // Validate dt
+    if (!std::isfinite(dt_sec) || dt_sec < MIN_MOTION_DT_SEC || dt_sec > MAX_MOTION_DT_SEC) {
+        return;
+    }
+
+    // Compute velocity in pixels/second (use double for safety)
+    const double dx = static_cast<double>(detection.center.x) -
+                      static_cast<double>(track.output.center.x);
+    const double dy = static_cast<double>(detection.center.y) -
+                      static_cast<double>(track.output.center.y);
+
+    const double velocity_x = dx / dt_sec;
+    const double velocity_y = dy / dt_sec;
+
+    // Validate velocity
+    if (!std::isfinite(velocity_x) || !std::isfinite(velocity_y)) {
+        return;
+    }
+
+    // Predict next center using current dt as horizon
+    const double predicted_x = static_cast<double>(detection.center.x) + velocity_x * dt_sec;
+    const double predicted_y = static_cast<double>(detection.center.y) + velocity_y * dt_sec;
+
+    // Validate prediction
+    if (!std::isfinite(predicted_x) || !std::isfinite(predicted_y)) {
+        return;
+    }
+
+    // Success: write back real estimates
+    track.output.velocity = cv::Point2f(
+        static_cast<float>(velocity_x),
+        static_cast<float>(velocity_y));
+    track.output.predicted_center = cv::Point2f(
+        static_cast<float>(predicted_x),
+        static_cast<float>(predicted_y));
+}
+
 void VestTracker::applyMatchedDetection(InternalTrack& track,
                                         const DetectedVest& detection) {
+    updateMotionEstimate(track, detection);
+
     track.output.box = detection.box;
     track.output.center = detection.center;
     track.output.confidence = detection.confidence;

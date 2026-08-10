@@ -58,7 +58,13 @@ private:
     void applyMatchedDetection(InternalTrack& track,
                                const DetectedVest& detection);
 
+    void updateMotionEstimate(InternalTrack& track,
+                              const DetectedVest& detection);
+
     InternalTrack createTrack(const DetectedVest& detection);
+
+    static constexpr double MIN_MOTION_DT_SEC = 0.001;
+    static constexpr double MAX_MOTION_DT_SEC = 0.5;
 
     VestTrackerConfig config_;
 
