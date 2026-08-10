@@ -9,6 +9,9 @@ namespace hnu25::vest {
 struct VestTrackerConfig {
     int confirm_hits = 2;
     int max_lost_frames = 5;
+
+    float min_iou = 0.10F;
+    float max_center_distance_ratio = 1.5F;
 };
 
 class VestTracker {
@@ -24,6 +27,20 @@ private:
         int hits = 0;
         int lost_frames = 0;
     };
+
+    struct AssociationMetrics {
+        float iou = 0.0F;
+        float center_distance_ratio = 0.0F;
+        bool passes_gate = false;
+    };
+
+    static float intersectionOverUnion(const cv::Rect2f& a, const cv::Rect2f& b);
+
+    static float normalizedCenterDistance(const InternalTrack& track,
+                                          const DetectedVest& detection);
+
+    AssociationMetrics evaluateAssociation(const InternalTrack& track,
+                                           const DetectedVest& detection) const;
 
     InternalTrack createTrack(const DetectedVest& detection);
 
