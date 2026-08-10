@@ -132,6 +132,115 @@ VestTracker::AssociationMetrics VestTracker::evaluateAssociation(
     return metrics;
 }
 
+int VestTracker::statePriority(VestTrackState state) {
+    switch (state) {
+        case VestTrackState::Tracking:        return 3;
+        case VestTrackState::TemporarilyLost: return 2;
+        case VestTrackState::Tentative:       return 1;
+        case VestTrackState::Lost:            return 0;
+    }
+    return 0;
+}
+
+std::vector<VestTracker::AssociationMatch> VestTracker::associate(
+    const std::vector<DetectedVest>& detections) const {
+    std::vector<AssociationMatch> candidates;
+
+    for (std::size_t track_index = 0; track_index < tracks_.size(); ++track_index) {
+        const auto& track = tracks_[track_index];
+
+        if (track.output.state == VestTrackState::Lost) {
+            continue;
+        }
+
+        for (std::size_t detection_index = 0; detection_index < detections.size();
+             ++detection_index) {
+            const auto metrics = evaluateAssociation(track, detections[detection_index]);
+
+            if (!metrics.passes_gate) {
+                continue;
+            }
+
+            AssociationMatch match;
+            match.track_index = track_index;
+            match.detection_index = detection_index;
+            match.metrics = metrics;
+            candidates.push_back(match);
+        }
+    }
+
+    auto isIouGated = [this](const AssociationMatch& m) {
+        return config_.min_iou > 0.0F && m.metrics.iou >= config_.min_iou;
+    };
+
+    std::sort(candidates.begin(), candidates.end(),
+              [this, &isIouGated](const AssociationMatch& lhs, const AssociationMatch& rhs) {
+                  const bool lhs_iou = isIouGated(lhs);
+                  const bool rhs_iou = isIouGated(rhs);
+
+                  if (lhs_iou != rhs_iou) {
+                      return lhs_iou;
+                  }
+
+                  if (lhs_iou) {
+                      if (lhs.metrics.iou != rhs.metrics.iou) {
+                          return lhs.metrics.iou > rhs.metrics.iou;
+                      }
+                      if (lhs.metrics.center_distance_ratio !=
+                          rhs.metrics.center_distance_ratio) {
+                          return lhs.metrics.center_distance_ratio <
+                                 rhs.metrics.center_distance_ratio;
+                      }
+                  } else {
+                      if (lhs.metrics.center_distance_ratio !=
+                          rhs.metrics.center_distance_ratio) {
+                          return lhs.metrics.center_distance_ratio <
+                                 rhs.metrics.center_distance_ratio;
+                      }
+                      if (lhs.metrics.iou != rhs.metrics.iou) {
+                          return lhs.metrics.iou > rhs.metrics.iou;
+                      }
+                  }
+
+                  const int lhs_prio =
+                      statePriority(tracks_[lhs.track_index].output.state);
+                  const int rhs_prio =
+                      statePriority(tracks_[rhs.track_index].output.state);
+                  if (lhs_prio != rhs_prio) {
+                      return lhs_prio > rhs_prio;
+                  }
+
+                  if (tracks_[lhs.track_index].output.track_id !=
+                      tracks_[rhs.track_index].output.track_id) {
+                      return tracks_[lhs.track_index].output.track_id <
+                             tracks_[rhs.track_index].output.track_id;
+                  }
+
+                  return lhs.detection_index < rhs.detection_index;
+              });
+
+    std::vector<bool> track_used(tracks_.size(), false);
+    std::vector<bool> detection_used(detections.size(), false);
+
+    std::vector<AssociationMatch> accepted_matches;
+    accepted_matches.reserve(std::min(tracks_.size(), detections.size()));
+
+    for (const auto& candidate : candidates) {
+        if (track_used[candidate.track_index]) {
+            continue;
+        }
+        if (detection_used[candidate.detection_index]) {
+            continue;
+        }
+
+        accepted_matches.push_back(candidate);
+        track_used[candidate.track_index] = true;
+        detection_used[candidate.detection_index] = true;
+    }
+
+    return accepted_matches;
+}
+
 VestTracker::InternalTrack VestTracker::createTrack(const DetectedVest& detection) {
     InternalTrack track;
 

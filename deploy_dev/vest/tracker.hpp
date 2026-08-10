@@ -2,6 +2,7 @@
 
 #include "vest/types.hpp"
 
+#include <cstddef>
 #include <vector>
 
 namespace hnu25::vest {
@@ -39,8 +40,20 @@ private:
     static float normalizedCenterDistance(const InternalTrack& track,
                                           const DetectedVest& detection);
 
+    struct AssociationMatch {
+        std::size_t track_index = 0;
+        std::size_t detection_index = 0;
+
+        AssociationMetrics metrics;
+    };
+
+    static int statePriority(VestTrackState state);
+
     AssociationMetrics evaluateAssociation(const InternalTrack& track,
                                            const DetectedVest& detection) const;
+
+    std::vector<AssociationMatch> associate(
+        const std::vector<DetectedVest>& detections) const;
 
     InternalTrack createTrack(const DetectedVest& detection);
 
