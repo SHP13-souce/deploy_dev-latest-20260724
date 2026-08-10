@@ -17,11 +17,11 @@ bool nearlyEqual(float a, float b, float epsilon = 1e-4F) {
     return std::fabs(a - b) <= epsilon;
 }
 
-DetectedVest makeDetection(float center_x, float center_y,
-                           float width, float height,
-                           float confidence,
-                           std::chrono::steady_clock::time_point timestamp) {
-    DetectedVest detection;
+hnu25::vest::DetectedVest makeDetection(float center_x, float center_y,
+                                      float width, float height,
+                                      float confidence,
+                                      std::chrono::steady_clock::time_point timestamp) {
+    hnu25::vest::DetectedVest detection;
     detection.center = cv::Point2f(center_x, center_y);
     detection.box = cv::Rect2f(center_x - width * 0.5F,
                                center_y - height * 0.5F,
@@ -32,15 +32,15 @@ DetectedVest makeDetection(float center_x, float center_y,
     return detection;
 }
 
-TrackedVest makeTrack(int track_id,
-                      VestTrackState state,
-                      float center_x, float center_y,
-                      float box_w, float box_h,
-                      float vel_x, float vel_y,
-                      float pred_x, float pred_y,
-                      float confidence,
-                      std::chrono::steady_clock::time_point timestamp) {
-    TrackedVest track;
+hnu25::vest::TrackedVest makeTrack(int track_id,
+                                hnu25::vest::VestTrackState state,
+                                float center_x, float center_y,
+                                float box_w, float box_h,
+                                float vel_x, float vel_y,
+                                float pred_x, float pred_y,
+                                float confidence,
+                                std::chrono::steady_clock::time_point timestamp) {
+    hnu25::vest::TrackedVest track;
     track.track_id = track_id;
     track.state = state;
     track.center = cv::Point2f(center_x, center_y);
