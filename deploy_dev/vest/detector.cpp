@@ -142,4 +142,52 @@ ov::Tensor VestDetector::runInference(const cv::Mat& bgr_img) {
     return output;
 }
 
+std::vector<VestDetector::RawCandidate> VestDetector::parseOutput(const ov::Tensor& output) const {
+    if (output.get_element_type() != ov::element::f32) {
+        throw std::runtime_error("target_v3 output parser requires FP32 tensor");
+    }
+
+    if (output.get_shape() != ov::Shape{1, OUTPUT_CHANNELS, OUTPUT_CANDIDATES}) {
+        throw std::runtime_error("target_v3 output parser requires [1,5,8400]");
+    }
+
+    const float* data = output.data<const float>();
+    constexpr int stride = OUTPUT_CANDIDATES;
+
+    std::vector<RawCandidate> candidates;
+    candidates.reserve(OUTPUT_CANDIDATES);
+
+    for (int i = 0; i < OUTPUT_CANDIDATES; ++i) {
+        const float cx = data[0 * stride + i];
+        const float cy = data[1 * stride + i];
+        const float w  = data[2 * stride + i];
+        const float h  = data[3 * stride + i];
+        const float confidence = data[4 * stride + i];
+
+        if (!std::isfinite(cx) || !std::isfinite(cy) ||
+            !std::isfinite(w) || !std::isfinite(h) ||
+            !std::isfinite(confidence)) {
+            continue;
+        }
+
+        if (confidence < conf_threshold_) {
+            continue;
+        }
+
+        if (w <= 0.0F || h <= 0.0F) {
+            continue;
+        }
+
+        RawCandidate candidate;
+        candidate.x1 = cx - 0.5F * w;
+        candidate.y1 = cy - 0.5F * h;
+        candidate.x2 = cx + 0.5F * w;
+        candidate.y2 = cy + 0.5F * h;
+        candidate.confidence = confidence;
+        candidates.push_back(candidate);
+    }
+
+    return candidates;
+}
+
 }  // namespace hnu25::vest

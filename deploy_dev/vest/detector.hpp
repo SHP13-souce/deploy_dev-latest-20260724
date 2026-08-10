@@ -29,8 +29,17 @@ public:
     void setConfidenceThreshold(float value);
 
 private:
+    struct RawCandidate {
+        float x1 = 0.0F;
+        float y1 = 0.0F;
+        float x2 = 0.0F;
+        float y2 = 0.0F;
+        float confidence = 0.0F;
+    };
+
     void preprocess(const cv::Mat& bgr_img);
     ov::Tensor runInference(const cv::Mat& bgr_img);
+    std::vector<RawCandidate> parseOutput(const ov::Tensor& output) const;
 
     static constexpr int INPUT_W = 640;
     static constexpr int INPUT_H = 640;
