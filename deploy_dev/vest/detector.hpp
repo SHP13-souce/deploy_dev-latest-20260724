@@ -30,6 +30,7 @@ public:
 
 private:
     void preprocess(const cv::Mat& bgr_img);
+    ov::Tensor runInference(const cv::Mat& bgr_img);
 
     static constexpr int INPUT_W = 640;
     static constexpr int INPUT_H = 640;

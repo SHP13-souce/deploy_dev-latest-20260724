@@ -123,4 +123,23 @@ void VestDetector::preprocess(const cv::Mat& bgr_img) {
     }
 }
 
+ov::Tensor VestDetector::runInference(const cv::Mat& bgr_img) {
+    preprocess(bgr_img);
+
+    infer_request_.infer();
+
+    ov::Tensor output = infer_request_.get_output_tensor();
+
+    if (output.get_element_type() != ov::element::f32) {
+        throw std::runtime_error("target_v3 inference output must be FP32");
+    }
+
+    const auto output_shape = output.get_shape();
+    if (output_shape != ov::Shape{1, OUTPUT_CHANNELS, OUTPUT_CANDIDATES}) {
+        throw std::runtime_error("target_v3 inference output must be [1,5,8400]");
+    }
+
+    return output;
+}
+
 }  // namespace hnu25::vest
