@@ -382,7 +382,9 @@ VestTracker::InternalTrack VestTracker::createTrack(const DetectedVest& detectio
 
     track.output.predicted_center = detection.center;
 
-    track.output.state = VestTrackState::Tentative;
+    track.output.state = config_.confirm_hits == 1
+        ? VestTrackState::Tracking
+        : VestTrackState::Tentative;
 
     track.hits = 1;
     track.lost_frames = 0;
