@@ -250,4 +250,55 @@ std::vector<VestDetector::RawCandidate> VestDetector::applyNms(
     return kept;
 }
 
+std::vector<DetectedVest> VestDetector::convertToDetections(
+    const std::vector<RawCandidate>& candidates,
+    const cv::Size& original_size,
+    std::chrono::steady_clock::time_point timestamp) const {
+    if (original_size.width <= 0 || original_size.height <= 0) {
+        throw std::invalid_argument("vest original image size must be positive");
+    }
+
+    if (!std::isfinite(last_scale_) || last_scale_ <= 0.0F) {
+        throw std::runtime_error("vest letterbox scale must be positive");
+    }
+
+    std::vector<DetectedVest> detections;
+    detections.reserve(candidates.size());
+
+    for (const auto& candidate : candidates) {
+        float x1 = (candidate.x1 - last_pad_x_) / last_scale_;
+        float y1 = (candidate.y1 - last_pad_y_) / last_scale_;
+        float x2 = (candidate.x2 - last_pad_x_) / last_scale_;
+        float y2 = (candidate.y2 - last_pad_y_) / last_scale_;
+
+        if (!std::isfinite(x1) || !std::isfinite(y1) ||
+            !std::isfinite(x2) || !std::isfinite(y2) ||
+            !std::isfinite(candidate.confidence)) {
+            continue;
+        }
+
+        const float max_x = static_cast<float>(original_size.width);
+        const float max_y = static_cast<float>(original_size.height);
+
+        x1 = std::clamp(x1, 0.0F, max_x);
+        y1 = std::clamp(y1, 0.0F, max_y);
+        x2 = std::clamp(x2, 0.0F, max_x);
+        y2 = std::clamp(y2, 0.0F, max_y);
+
+        if (x2 <= x1 || y2 <= y1) {
+            continue;
+        }
+
+        DetectedVest vest;
+        vest.box = cv::Rect2f(x1, y1, x2 - x1, y2 - y1);
+        vest.center = cv::Point2f(0.5F * (x1 + x2), 0.5F * (y1 + y2));
+        vest.confidence = candidate.confidence;
+        vest.class_id = 0;
+        vest.timestamp = timestamp;
+        detections.push_back(vest);
+    }
+
+    return detections;
+}
+
 }  // namespace hnu25::vest

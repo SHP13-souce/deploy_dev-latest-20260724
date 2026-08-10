@@ -45,6 +45,11 @@ private:
 
     std::vector<RawCandidate> applyNms(std::vector<RawCandidate> candidates) const;
 
+    std::vector<DetectedVest> convertToDetections(
+        const std::vector<RawCandidate>& candidates,
+        const cv::Size& original_size,
+        std::chrono::steady_clock::time_point timestamp) const;
+
     static constexpr int INPUT_W = 640;
     static constexpr int INPUT_H = 640;
     static constexpr int OUTPUT_CHANNELS = 5;
