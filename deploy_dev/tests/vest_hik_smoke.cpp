@@ -209,9 +209,9 @@ int main(int argc, char** argv) {
         }
 
         // ── Shutdown ───────────────────────────────────────────────
-        camera.stop();
-
         const auto end_time = std::chrono::steady_clock::now();
+
+        camera.stop();
         const double elapsed_sec =
             std::chrono::duration<double>(end_time - start_time).count();
         const double processing_fps =
