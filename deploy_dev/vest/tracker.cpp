@@ -31,6 +31,54 @@ VestTracker::VestTracker(const VestTrackerConfig& config)
     }
 }
 
+std::vector<TrackedVest> VestTracker::update(const std::vector<DetectedVest>& detections) {
+    const std::size_t existing_track_count = tracks_.size();
+
+    const auto matches = associate(detections);
+
+    std::vector<bool> track_matched(existing_track_count, false);
+    std::vector<bool> detection_matched(detections.size(), false);
+
+    for (const auto& match : matches) {
+        track_matched[match.track_index] = true;
+        detection_matched[match.detection_index] = true;
+
+        applyMatchedDetection(tracks_[match.track_index],
+                              detections[match.detection_index]);
+    }
+
+    for (std::size_t i = 0; i < existing_track_count; ++i) {
+        if (track_matched[i]) {
+            continue;
+        }
+
+        applyUnmatchedTrack(tracks_[i]);
+    }
+
+    for (std::size_t i = 0; i < detections.size(); ++i) {
+        if (detection_matched[i]) {
+            continue;
+        }
+
+        tracks_.push_back(createTrack(detections[i]));
+    }
+
+    tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
+                                  [](const InternalTrack& track) {
+                                      return track.output.state == VestTrackState::Lost;
+                                  }),
+                   tracks_.end());
+
+    std::vector<TrackedVest> outputs;
+    outputs.reserve(tracks_.size());
+
+    for (const auto& track : tracks_) {
+        outputs.push_back(track.output);
+    }
+
+    return outputs;
+}
+
 float VestTracker::intersectionOverUnion(const cv::Rect2f& a, const cv::Rect2f& b) {
     if (!std::isfinite(a.x) || !std::isfinite(a.y) ||
         !std::isfinite(a.width) || !std::isfinite(a.height) ||
