@@ -26,6 +26,10 @@ target_link_libraries(camera_test PRIVATE camera Threads::Threads)
 add_test(NAME camera_frame_source COMMAND camera_test)
 
 if(BUILD_APPLICATIONS)
+add_executable(vest_logic_test vest_logic_test.cpp)
+target_link_libraries(vest_logic_test PRIVATE vest_detection)
+add_test(NAME vest_logic COMMAND vest_logic_test)
+
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
