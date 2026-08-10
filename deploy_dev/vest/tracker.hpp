@@ -55,6 +55,9 @@ private:
     std::vector<AssociationMatch> associate(
         const std::vector<DetectedVest>& detections) const;
 
+    void applyMatchedDetection(InternalTrack& track,
+                               const DetectedVest& detection);
+
     InternalTrack createTrack(const DetectedVest& detection);
 
     VestTrackerConfig config_;

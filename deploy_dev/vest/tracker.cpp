@@ -241,6 +241,35 @@ std::vector<VestTracker::AssociationMatch> VestTracker::associate(
     return accepted_matches;
 }
 
+void VestTracker::applyMatchedDetection(InternalTrack& track,
+                                        const DetectedVest& detection) {
+    track.output.box = detection.box;
+    track.output.center = detection.center;
+    track.output.confidence = detection.confidence;
+    track.output.timestamp = detection.timestamp;
+
+    ++track.hits;
+    track.lost_frames = 0;
+
+    switch (track.output.state) {
+        case VestTrackState::Tentative:
+            if (track.hits >= config_.confirm_hits) {
+                track.output.state = VestTrackState::Tracking;
+            }
+            break;
+
+        case VestTrackState::Tracking:
+            break;
+
+        case VestTrackState::TemporarilyLost:
+            track.output.state = VestTrackState::Tracking;
+            break;
+
+        case VestTrackState::Lost:
+            break;
+    }
+}
+
 VestTracker::InternalTrack VestTracker::createTrack(const DetectedVest& detection) {
     InternalTrack track;
 
