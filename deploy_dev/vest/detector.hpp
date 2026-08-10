@@ -29,6 +29,8 @@ public:
     void setConfidenceThreshold(float value);
 
 private:
+    void preprocess(const cv::Mat& bgr_img);
+
     static constexpr int INPUT_W = 640;
     static constexpr int INPUT_H = 640;
     static constexpr int OUTPUT_CHANNELS = 5;
