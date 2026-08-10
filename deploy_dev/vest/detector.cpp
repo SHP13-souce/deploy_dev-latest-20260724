@@ -79,6 +79,18 @@ void VestDetector::setConfidenceThreshold(float value) {
     conf_threshold_ = value;
 }
 
+std::vector<DetectedVest> VestDetector::detect(const cv::Mat& bgr_img) {
+    const auto timestamp = std::chrono::steady_clock::now();
+
+    auto output = runInference(bgr_img);
+
+    auto candidates = parseOutput(output);
+
+    auto kept = applyNms(candidates);
+
+    return convertToDetections(kept, bgr_img.size(), timestamp);
+}
+
 void VestDetector::preprocess(const cv::Mat& bgr_img) {
     if (bgr_img.empty()) {
         throw std::invalid_argument("vest input image must not be empty");
