@@ -7,6 +7,7 @@
 #include "camera/hik_frame_source.hpp"
 #endif
 
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
@@ -98,10 +99,8 @@ int main(int argc, char** argv) {
         std::uint64_t frames_with_valid_target = 0;
 
         bool first_frame_logged = false;
-        std::uint64_t prev_camera_frame_number = 0;
-        bool have_prev_camera_frame = false;
-
-        const auto start_time = std::chrono::steady_clock::now();
+        bool timing_started = false;
+        std::chrono::steady_clock::time_point start_time;
 
         while (processed_frames < static_cast<std::uint64_t>(max_frames)) {
             hnu25::camera::Frame frame;
@@ -133,16 +132,10 @@ int main(int argc, char** argv) {
                 first_frame_logged = true;
             }
 
-            // ── Frame-number gap detection ─────────────────────────
-            if (have_prev_camera_frame) {
-                if (frame.frame_number != prev_camera_frame_number + 1) {
-                    std::cerr << "[Warning] camera frame_number jump: "
-                              << prev_camera_frame_number << " -> "
-                              << frame.frame_number << '\n';
-                }
+            if (!timing_started) {
+                start_time = std::chrono::steady_clock::now();
+                timing_started = true;
             }
-            prev_camera_frame_number = frame.frame_number;
-            have_prev_camera_frame = true;
 
             // ── Detector ───────────────────────────────────────────
             auto detections = detector.detect(frame.image);
