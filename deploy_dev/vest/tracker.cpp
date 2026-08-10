@@ -122,8 +122,12 @@ VestTracker::AssociationMetrics VestTracker::evaluateAssociation(
     metrics.iou = intersectionOverUnion(track.output.box, detection.box);
     metrics.center_distance_ratio = normalizedCenterDistance(track, detection);
 
-    metrics.passes_gate = (metrics.iou >= config_.min_iou) ||
-                          (metrics.center_distance_ratio <= config_.max_center_distance_ratio);
+    const bool passes_iou_gate =
+        config_.min_iou > 0.0F && metrics.iou >= config_.min_iou;
+    const bool passes_distance_gate =
+        metrics.center_distance_ratio <= config_.max_center_distance_ratio;
+
+    metrics.passes_gate = passes_iou_gate || passes_distance_gate;
 
     return metrics;
 }
