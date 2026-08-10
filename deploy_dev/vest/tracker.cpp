@@ -346,6 +346,27 @@ void VestTracker::applyMatchedDetection(InternalTrack& track,
     }
 }
 
+void VestTracker::applyUnmatchedTrack(InternalTrack& track) {
+    switch (track.output.state) {
+        case VestTrackState::Tentative:
+            track.output.state = VestTrackState::Lost;
+            break;
+
+        case VestTrackState::Tracking:
+        case VestTrackState::TemporarilyLost:
+            if (track.lost_frames < config_.max_lost_frames) {
+                ++track.lost_frames;
+                track.output.state = VestTrackState::TemporarilyLost;
+            } else {
+                track.output.state = VestTrackState::Lost;
+            }
+            break;
+
+        case VestTrackState::Lost:
+            break;
+    }
+}
+
 VestTracker::InternalTrack VestTracker::createTrack(const DetectedVest& detection) {
     InternalTrack track;
 

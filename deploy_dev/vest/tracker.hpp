@@ -58,6 +58,8 @@ private:
     void applyMatchedDetection(InternalTrack& track,
                                const DetectedVest& detection);
 
+    void applyUnmatchedTrack(InternalTrack& track);
+
     void updateMotionEstimate(InternalTrack& track,
                               const DetectedVest& detection);
 
