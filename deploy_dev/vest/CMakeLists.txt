@@ -4,6 +4,7 @@ add_library(vest_detection STATIC
     detector.cpp
     tracker.cpp
     target_selector.cpp
+    vision_target_core.cpp
 )
 
 target_include_directories(vest_detection PUBLIC
