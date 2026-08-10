@@ -30,6 +30,15 @@ add_executable(vest_logic_test vest_logic_test.cpp)
 target_link_libraries(vest_logic_test PRIVATE vest_detection)
 add_test(NAME vest_logic COMMAND vest_logic_test)
 
+add_executable(vest_pipeline_smoke
+    vest_pipeline_smoke.cpp
+)
+target_link_libraries(vest_pipeline_smoke PRIVATE
+    vest_detection
+    opencv_imgcodecs
+    opencv_videoio
+)
+
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
