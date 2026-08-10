@@ -2,6 +2,7 @@
 
 add_library(vest_detection STATIC
     detector.cpp
+    tracker.cpp
 )
 
 target_include_directories(vest_detection PUBLIC
