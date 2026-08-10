@@ -47,6 +47,14 @@ target_link_libraries(vest_hik_smoke PRIVATE
     camera
 )
 
+add_executable(vest_opencv_camera_smoke
+    vest_opencv_camera_smoke.cpp
+)
+target_link_libraries(vest_opencv_camera_smoke PRIVATE
+    vest_detection
+    opencv_videoio
+)
+
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
