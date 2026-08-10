@@ -41,6 +41,10 @@ private:
     ov::Tensor runInference(const cv::Mat& bgr_img);
     std::vector<RawCandidate> parseOutput(const ov::Tensor& output) const;
 
+    static float intersectionOverUnion(const RawCandidate& a, const RawCandidate& b);
+
+    std::vector<RawCandidate> applyNms(std::vector<RawCandidate> candidates) const;
+
     static constexpr int INPUT_W = 640;
     static constexpr int INPUT_H = 640;
     static constexpr int OUTPUT_CHANNELS = 5;

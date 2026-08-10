@@ -190,4 +190,64 @@ std::vector<VestDetector::RawCandidate> VestDetector::parseOutput(const ov::Tens
     return candidates;
 }
 
+float VestDetector::intersectionOverUnion(const RawCandidate& a, const RawCandidate& b) {
+    const float inter_x1 = std::max(a.x1, b.x1);
+    const float inter_y1 = std::max(a.y1, b.y1);
+    const float inter_x2 = std::min(a.x2, b.x2);
+    const float inter_y2 = std::min(a.y2, b.y2);
+
+    const float inter_w = std::max(0.0F, inter_x2 - inter_x1);
+    const float inter_h = std::max(0.0F, inter_y2 - inter_y1);
+    const float inter_area = inter_w * inter_h;
+
+    const float area_a = std::max(0.0F, a.x2 - a.x1) * std::max(0.0F, a.y2 - a.y1);
+    const float area_b = std::max(0.0F, b.x2 - b.x1) * std::max(0.0F, b.y2 - b.y1);
+
+    const float union_area = area_a + area_b - inter_area;
+
+    if (union_area <= 0.0F) {
+        return 0.0F;
+    }
+
+    const float iou = inter_area / union_area;
+
+    if (!std::isfinite(iou)) {
+        return 0.0F;
+    }
+
+    return iou;
+}
+
+std::vector<VestDetector::RawCandidate> VestDetector::applyNms(
+    std::vector<RawCandidate> candidates) const {
+    if (candidates.empty()) {
+        return {};
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+              [](const RawCandidate& lhs, const RawCandidate& rhs) {
+                  return lhs.confidence > rhs.confidence;
+              });
+
+    std::vector<RawCandidate> kept;
+    kept.reserve(candidates.size());
+
+    for (const auto& candidate : candidates) {
+        bool suppressed = false;
+
+        for (const auto& selected : kept) {
+            if (intersectionOverUnion(candidate, selected) > nms_threshold_) {
+                suppressed = true;
+                break;
+            }
+        }
+
+        if (!suppressed) {
+            kept.push_back(candidate);
+        }
+    }
+
+    return kept;
+}
+
 }  // namespace hnu25::vest
