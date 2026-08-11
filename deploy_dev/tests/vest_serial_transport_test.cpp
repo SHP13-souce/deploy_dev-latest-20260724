@@ -81,13 +81,14 @@ public:
         // Get slave device path, then close the slave fd.
         // SerialPort will reopen the slave by path.
         char name_buffer[256]{};
-        if (::ttyname_r(slave, name_buffer, sizeof(name_buffer)) != 0) {
-            const int error_number = errno;
+        const int ttyname_result =
+            ::ttyname_r(slave, name_buffer, sizeof(name_buffer));
+        if (ttyname_result != 0) {
             ::close(slave);
             ::close(master);
             throw std::runtime_error(
                 std::string("ttyname_r failed: ") +
-                std::strerror(error_number));
+                std::strerror(ttyname_result));
         }
 
         slave_path_ = name_buffer;
