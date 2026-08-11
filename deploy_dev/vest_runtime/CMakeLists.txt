@@ -2,6 +2,7 @@
 add_library(vest_runtime_core STATIC
     runtime_config.cpp
     vest_runtime.cpp
+    vision_protocol.cpp
 )
 
 target_include_directories(vest_runtime_core PUBLIC

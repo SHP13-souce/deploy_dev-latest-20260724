@@ -55,6 +55,14 @@ target_link_libraries(vest_opencv_camera_smoke PRIVATE
     opencv_videoio
 )
 
+add_executable(vest_vision_protocol_test
+    vest_vision_protocol_test.cpp
+)
+target_link_libraries(vest_vision_protocol_test PRIVATE
+    vest_runtime_core
+)
+add_test(NAME vest_vision_protocol COMMAND vest_vision_protocol_test)
+
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
