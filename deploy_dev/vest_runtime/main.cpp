@@ -1,10 +1,12 @@
 #include "vest_runtime/runtime_config.hpp"
+#include "vest_runtime/serial_observation_sink.hpp"
 #include "vest_runtime/vest_runtime.hpp"
 
 #include <atomic>
 #include <csignal>
 #include <exception>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -53,11 +55,19 @@ int main(int argc, char** argv) {
 
         std::cerr << "[vest_runtime] config=" << config_path << '\n';
 
+        std::unique_ptr<hnu25::vest_runtime::ObservationSink> sink;
+
+        if (config.serial.enabled) {
+            sink = std::make_unique<
+                hnu25::vest_runtime::SerialObservationSink>(
+                config.serial.port);
+        } else {
+            sink = std::make_unique<NoopObservationSink>();
+        }
+
         hnu25::vest_runtime::VestRuntime runtime(std::move(config));
 
-        NoopObservationSink sink;
-
-        runtime.run(g_stop_requested, sink);
+        runtime.run(g_stop_requested, *sink);
 
         return 0;
 
