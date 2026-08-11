@@ -26,19 +26,25 @@ void require(bool condition, const std::string& message) {
 
 template <typename Exception, typename Func>
 void requireThrows(Func&& func, const std::string& name) {
+    bool caught_expected = false;
+
     try {
         func();
-        throw std::runtime_error(
-            "test failure: " + name + " did not throw");
     } catch (const Exception&) {
-        return;
+        caught_expected = true;
     } catch (const std::exception& e) {
         throw std::runtime_error(
             "test failure: " + name +
             " threw wrong exception type: " + e.what());
     } catch (...) {
         throw std::runtime_error(
-            "test failure: " + name + " threw unknown exception");
+            "test failure: " + name +
+            " threw unknown exception");
+    }
+
+    if (!caught_expected) {
+        throw std::runtime_error(
+            "test failure: " + name + " did not throw");
     }
 }
 
