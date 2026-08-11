@@ -63,6 +63,32 @@ target_link_libraries(vest_vision_protocol_test PRIVATE
 )
 add_test(NAME vest_vision_protocol COMMAND vest_vision_protocol_test)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_library(
+        HNU25_UTIL_LIBRARY
+        NAMES util
+    )
+    if(NOT HNU25_UTIL_LIBRARY)
+        message(FATAL_ERROR
+            "libutil is required for vest serial PTY tests")
+    endif()
+
+    add_executable(
+        vest_serial_transport_test
+        vest_serial_transport_test.cpp
+    )
+    target_link_libraries(
+        vest_serial_transport_test
+        PRIVATE
+        vest_runtime_core
+        ${HNU25_UTIL_LIBRARY}
+    )
+    add_test(
+        NAME vest_serial_transport
+        COMMAND vest_serial_transport_test
+    )
+endif()
+
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
