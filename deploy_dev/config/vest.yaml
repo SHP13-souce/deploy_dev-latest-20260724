@@ -1,0 +1,48 @@
+# Vest vision runtime configuration
+#
+# Production default:
+#   camera_backend: hik
+#
+# The runtime will load this file automatically when started without
+# command-line arguments.
+
+runtime:
+  camera_backend: hik
+  frame_timeout_ms: 1000
+  max_consecutive_timeouts: 5
+  log_interval_frames: 30
+
+detector:
+  model_path: assets/models/target_v3/openvino/target_v3.xml
+  conf_threshold: 0.25
+  nms_threshold: 0.45
+  performance_mode: latency
+
+tracker:
+  confirm_hits: 2
+  max_lost_frames: 5
+  min_iou: 0.10
+  max_center_distance_ratio: 1.5
+
+# Visual observation TX only.
+# Set enabled=true and device to the actual NUC serial device
+# when the electrical-control link is connected.
+serial:
+  enabled: false
+  device: ""
+  baud_rate: 115200
+
+camera:
+  hik:
+    serial_number: ""
+    exposure: 3000.0
+    gain: 0.0
+    frame_rate: 100.0
+
+  opencv:
+    camera_id: 0
+    width: 1440
+    height: 1080
+    exposure: 0.0
+    gain: 0.0
+    frame_rate: 0.0

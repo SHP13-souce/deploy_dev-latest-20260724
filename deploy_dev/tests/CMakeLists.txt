@@ -26,6 +26,69 @@ target_link_libraries(camera_test PRIVATE camera Threads::Threads)
 add_test(NAME camera_frame_source COMMAND camera_test)
 
 if(BUILD_APPLICATIONS)
+add_executable(vest_logic_test vest_logic_test.cpp)
+target_link_libraries(vest_logic_test PRIVATE vest_detection)
+add_test(NAME vest_logic COMMAND vest_logic_test)
+
+add_executable(vest_pipeline_smoke
+    vest_pipeline_smoke.cpp
+)
+target_link_libraries(vest_pipeline_smoke PRIVATE
+    vest_detection
+    opencv_imgcodecs
+    opencv_videoio
+)
+
+add_executable(vest_hik_smoke
+    vest_hik_smoke.cpp
+)
+target_link_libraries(vest_hik_smoke PRIVATE
+    vest_detection
+    camera
+)
+
+add_executable(vest_opencv_camera_smoke
+    vest_opencv_camera_smoke.cpp
+)
+target_link_libraries(vest_opencv_camera_smoke PRIVATE
+    vest_detection
+    opencv_videoio
+)
+
+add_executable(vest_vision_protocol_test
+    vest_vision_protocol_test.cpp
+)
+target_link_libraries(vest_vision_protocol_test PRIVATE
+    vest_runtime_core
+)
+add_test(NAME vest_vision_protocol COMMAND vest_vision_protocol_test)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_library(
+        HNU25_UTIL_LIBRARY
+        NAMES util
+    )
+    if(NOT HNU25_UTIL_LIBRARY)
+        message(FATAL_ERROR
+            "libutil is required for vest serial PTY tests")
+    endif()
+
+    add_executable(
+        vest_serial_transport_test
+        vest_serial_transport_test.cpp
+    )
+    target_link_libraries(
+        vest_serial_transport_test
+        PRIVATE
+        vest_runtime_core
+        ${HNU25_UTIL_LIBRARY}
+    )
+    add_test(
+        NAME vest_serial_transport
+        COMMAND vest_serial_transport_test
+    )
+endif()
+
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
