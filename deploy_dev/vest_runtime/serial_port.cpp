@@ -75,10 +75,14 @@ SerialPort::~SerialPort() noexcept {
 // ── closePort ──────────────────────────────────────────────────────────
 
 void SerialPort::closePort() noexcept {
+#if defined(__linux__)
     if (fd_ >= 0) {
         ::close(fd_);
         fd_ = -1;
     }
+#else
+    fd_ = -1;
+#endif
 }
 
 // ── openPort ───────────────────────────────────────────────────────────
@@ -99,6 +103,9 @@ void SerialPort::openPort() {
         throw std::invalid_argument(
             "serial baud rate must be positive");
     }
+
+    // ── Validate baud rate before acquiring fd ───────────────────
+    const speed_t speed = baudRateToTermios(config_.baud_rate);
 
     // ── Open device ──────────────────────────────────────────────
     fd_ = ::open(config_.device.c_str(),
@@ -144,8 +151,6 @@ void SerialPort::openPort() {
     tty.c_cc[VTIME] = 0;
 
     // ── Baud rate ────────────────────────────────────────────────
-    const speed_t speed = baudRateToTermios(config_.baud_rate);
-
     if (::cfsetispeed(&tty, speed) < 0) {
         const int error_number = errno;
         closePort();
