@@ -26,12 +26,12 @@ void validateAllowedKeys(const YAML::Node& node,
     }
 }
 
-const YAML::Node& requireMapSection(const YAML::Node& parent,
-                                    const std::string& key,
-                                    const std::string& parent_path) {
+YAML::Node requireMapSection(const YAML::Node& parent,
+                             const std::string& key,
+                             const std::string& parent_path) {
     const std::string full_path =
         parent_path.empty() ? key : parent_path + "." + key;
-    const auto& node = parent[key];
+    YAML::Node node = parent[key];
     if (!node) {
         throw std::runtime_error("missing required config section: " +
                                  full_path);
@@ -88,10 +88,10 @@ RuntimeConfig RuntimeConfig::loadFromFile(const std::string& path) {
                         "root");
 
     // ── Top-level sections ─────────────────────────────────────────
-    const auto& runtime_node = requireMapSection(root, "runtime", "");
-    const auto& detector_node = requireMapSection(root, "detector", "");
-    const auto& tracker_node = requireMapSection(root, "tracker", "");
-    const auto& camera_node = requireMapSection(root, "camera", "");
+    const YAML::Node runtime_node = requireMapSection(root, "runtime", "");
+    const YAML::Node detector_node = requireMapSection(root, "detector", "");
+    const YAML::Node tracker_node = requireMapSection(root, "tracker", "");
+    const YAML::Node camera_node = requireMapSection(root, "camera", "");
 
     RuntimeConfig config;
 
@@ -234,7 +234,7 @@ RuntimeConfig RuntimeConfig::loadFromFile(const std::string& path) {
     validateAllowedKeys(camera_node, {"hik", "opencv"}, "camera");
 
     // ── camera.hik ─────────────────────────────────────────────────
-    const auto& hik_node = requireMapSection(camera_node, "hik", "camera");
+    const YAML::Node hik_node = requireMapSection(camera_node, "hik", "camera");
     validateAllowedKeys(hik_node,
                         {"serial_number", "exposure", "gain", "frame_rate"},
                         "camera.hik");
@@ -270,7 +270,7 @@ RuntimeConfig RuntimeConfig::loadFromFile(const std::string& path) {
     }
 
     // ── camera.opencv ──────────────────────────────────────────────
-    const auto& opencv_node =
+    const YAML::Node opencv_node =
         requireMapSection(camera_node, "opencv", "camera");
     validateAllowedKeys(opencv_node,
                         {"camera_id", "width", "height", "exposure", "gain",
