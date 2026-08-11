@@ -24,6 +24,14 @@ tracker:
   min_iou: 0.10
   max_center_distance_ratio: 1.5
 
+# Visual observation TX only.
+# Set enabled=true and device to the actual NUC serial device
+# when the electrical-control link is connected.
+serial:
+  enabled: false
+  device: ""
+  baud_rate: 115200
+
 camera:
   hik:
     serial_number: ""

@@ -84,13 +84,14 @@ RuntimeConfig RuntimeConfig::loadFromFile(const std::string& path) {
 
     // ── Root allowed keys ──────────────────────────────────────────
     validateAllowedKeys(root,
-                        {"runtime", "detector", "tracker", "camera"},
+                        {"runtime", "detector", "tracker", "serial", "camera"},
                         "root");
 
     // ── Top-level sections ─────────────────────────────────────────
     const YAML::Node runtime_node = requireMapSection(root, "runtime", "");
     const YAML::Node detector_node = requireMapSection(root, "detector", "");
     const YAML::Node tracker_node = requireMapSection(root, "tracker", "");
+    const YAML::Node serial_node = requireMapSection(root, "serial", "");
     const YAML::Node camera_node = requireMapSection(root, "camera", "");
 
     RuntimeConfig config;
@@ -226,6 +227,31 @@ RuntimeConfig RuntimeConfig::loadFromFile(const std::string& path) {
     if (config.tracker.max_center_distance_ratio < 0.0F) {
         throw std::runtime_error(
             "tracker.max_center_distance_ratio must be >= 0.0");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // serial
+    // ═══════════════════════════════════════════════════════════════
+    validateAllowedKeys(serial_node,
+                        {"enabled", "device", "baud_rate"},
+                        "serial");
+
+    config.serial.enabled =
+        readRequired<bool>(serial_node, "enabled", "serial");
+
+    config.serial.port.device =
+        readRequired<std::string>(serial_node, "device", "serial");
+
+    config.serial.port.baud_rate =
+        readRequired<int>(serial_node, "baud_rate", "serial");
+
+    if (config.serial.port.baud_rate <= 0) {
+        throw std::runtime_error("serial.baud_rate must be positive");
+    }
+
+    if (config.serial.enabled && config.serial.port.device.empty()) {
+        throw std::runtime_error(
+            "serial.device must not be empty when serial.enabled is true");
     }
 
     // ═══════════════════════════════════════════════════════════════

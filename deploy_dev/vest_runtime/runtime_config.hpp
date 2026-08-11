@@ -4,6 +4,7 @@
 #include "camera/opencv_frame_source.hpp"
 #include "vest/detector.hpp"
 #include "vest/tracker.hpp"
+#include "vest_runtime/serial_port.hpp"
 
 #include <string>
 
@@ -22,11 +23,18 @@ struct RuntimeSettings {
     int log_interval_frames = 30;
 };
 
+struct SerialSettings {
+    bool enabled = false;
+    SerialPortConfig port;
+};
+
 struct RuntimeConfig {
     RuntimeSettings runtime;
 
     hnu25::vest::VestDetectorConfig detector;
     hnu25::vest::VestTrackerConfig tracker;
+
+    SerialSettings serial;
 
     hnu25::camera::HikConfig hik_camera;
     hnu25::camera::OpenCvConfig opencv_camera;
