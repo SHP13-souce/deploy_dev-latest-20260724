@@ -10,6 +10,8 @@ static_assert(sizeof(float) == 4,
               "vision protocol requires 32-bit float");
 static_assert(std::numeric_limits<float>::is_iec559,
               "vision protocol requires IEEE-754 float");
+static_assert(sizeof(std::int32_t) == sizeof(std::uint32_t),
+              "vision protocol requires 32-bit int32_t");
 
 namespace {
 
@@ -108,32 +110,21 @@ float readFloat32LE(const std::uint8_t* src) {
 
 // ── CRC-32/IEEE (reflected) ─────────────────────────────────────────
 
-std::uint32_t crc32Table[256];
-bool crcTableInitialized = false;
+std::uint32_t computeCrc32(const std::uint8_t* data, std::size_t len) {
+    std::uint32_t crc = 0xFFFFFFFFu;
 
-void initCrc32Table() {
-    for (int i = 0; i < 256; ++i) {
-        std::uint32_t crc = static_cast<std::uint32_t>(i);
-        for (int j = 0; j < 8; ++j) {
-            if (crc & 1) {
+    for (std::size_t i = 0; i < len; ++i) {
+        crc ^= static_cast<std::uint32_t>(data[i]);
+
+        for (int bit = 0; bit < 8; ++bit) {
+            if ((crc & 1u) != 0u) {
                 crc = (crc >> 1) ^ 0xEDB88320u;
             } else {
                 crc >>= 1;
             }
         }
-        crc32Table[i] = crc;
     }
-    crcTableInitialized = true;
-}
 
-std::uint32_t computeCrc32(const std::uint8_t* data, std::size_t len) {
-    if (!crcTableInitialized) {
-        initCrc32Table();
-    }
-    std::uint32_t crc = 0xFFFFFFFFu;
-    for (std::size_t i = 0; i < len; ++i) {
-        crc = crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
-    }
     return crc ^ 0xFFFFFFFFu;
 }
 
@@ -379,8 +370,10 @@ hnu25::vest::VisionTargetObservation decodeVisionObservation(
     {
         const std::uint32_t track_id_bits =
             readU32LE(&data[kOffsetTrackId]);
-        observation.track_id =
-            static_cast<std::int32_t>(track_id_bits);
+        std::int32_t track_id = 0;
+        std::memcpy(&track_id, &track_id_bits,
+                    sizeof(track_id));
+        observation.track_id = track_id;
     }
 
     observation.has_target = (flags & kFlagHasTarget) != 0;
@@ -403,7 +396,14 @@ hnu25::vest::VisionTargetObservation decodeVisionObservation(
     observation.confidence = readFloat32LE(&data[kOffsetConfidence]);
 
     // ── Semantic validation ─────────────────────────────────────────
-    validateObservation(observation);
+    try {
+        validateObservation(observation);
+    } catch (const std::invalid_argument& e) {
+        throw std::runtime_error(
+            std::string(
+                "vision protocol invalid observation semantics: ") +
+            e.what());
+    }
 
     return observation;
 }
