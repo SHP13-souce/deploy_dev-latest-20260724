@@ -95,6 +95,24 @@ add_test(
     COMMAND anti_drone_config_test
 )
 
+add_executable(
+    anti_drone_pnp_test
+    anti_drone_pnp_test.cpp
+)
+
+target_link_libraries(
+    anti_drone_pnp_test
+    PRIVATE
+    anti_drone
+    opencv_core
+    opencv_calib3d
+)
+
+add_test(
+    NAME anti_drone_pnp
+    COMMAND anti_drone_pnp_test
+)
+
 if(BUILD_APPLICATIONS)
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
