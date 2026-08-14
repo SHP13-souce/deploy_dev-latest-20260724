@@ -41,6 +41,31 @@ std::array<cv::Point2f, 4> orderCorners(
     return {tl, tr, br, bl};
 }
 
+// Bbox intersection-over-union, computed entirely in double to avoid
+// integer overflow on large images. Returns 0.0 for non-overlapping or
+// degenerate rectangles, and clamps the ratio to [0, 1].
+double intersectionOverUnion(const cv::Rect& a, const cv::Rect& b) {
+    const cv::Rect intersection = a & b;
+    if (intersection.width <= 0 || intersection.height <= 0) {
+        return 0.0;
+    }
+
+    const double intersection_area =
+        static_cast<double>(intersection.width) *
+        static_cast<double>(intersection.height);
+    const double a_area =
+        static_cast<double>(a.width) * static_cast<double>(a.height);
+    const double b_area =
+        static_cast<double>(b.width) * static_cast<double>(b.height);
+    const double union_area = a_area + b_area - intersection_area;
+
+    if (union_area <= 0.0) {
+        return 0.0;
+    }
+
+    return std::clamp(intersection_area / union_area, 0.0, 1.0);
+}
+
 }  // namespace
 
 TraditionalTargetDetector::TraditionalTargetDetector(
@@ -353,7 +378,31 @@ TraditionalTargetDetector::detect(const cv::Mat& bgr_image) {
                   return a.cv_score > b.cv_score;
               });
 
-    return observations;
+    // ── Non-maximum suppression (bbox IoU) ────────────────────────────────
+    // Greedy suppression over the already score-sorted observations: a
+    // candidate is dropped only when its IoU with a higher-scoring kept
+    // observation strictly exceeds the (clamped) threshold.
+    const double nms_threshold = std::clamp(
+        static_cast<double>(config_.nms_iou_threshold), 0.0, 1.0);
+
+    std::vector<TargetObservation> kept;
+    kept.reserve(observations.size());
+
+    for (auto& candidate : observations) {
+        bool suppressed = false;
+        for (const auto& existing : kept) {
+            if (intersectionOverUnion(candidate.box, existing.box) >
+                nms_threshold) {
+                suppressed = true;
+                break;
+            }
+        }
+        if (!suppressed) {
+            kept.push_back(std::move(candidate));
+        }
+    }
+
+    return kept;
 }
 
 }  // namespace hnu25::anti_drone
