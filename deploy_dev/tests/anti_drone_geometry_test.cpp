@@ -131,6 +131,77 @@ void testPerspectiveQuad() {
           "center near quad mean within 5px");
 }
 
+// Test 7: a white square rotated 35 degrees around (320, 240).
+void testRotatedSquare() {
+    constexpr double kPi = 3.14159265358979323846;
+    const double theta = 35.0 * kPi / 180.0;
+    const double cos_t = std::cos(theta);
+    const double sin_t = std::sin(theta);
+
+    const cv::Point2f center(320.0F, 240.0F);
+    constexpr double kHalf = 90.0;
+
+    // Local square corners before rotation.
+    const cv::Point2f local_tl(static_cast<float>(-kHalf),
+                               static_cast<float>(-kHalf));
+    const cv::Point2f local_tr(static_cast<float>(kHalf),
+                               static_cast<float>(-kHalf));
+    const cv::Point2f local_br(static_cast<float>(kHalf),
+                               static_cast<float>(kHalf));
+    const cv::Point2f local_bl(static_cast<float>(-kHalf),
+                               static_cast<float>(kHalf));
+
+    // 2D rotation in image coordinates (x right, y down).
+    const auto rotate = [&](const cv::Point2f& p) {
+        return cv::Point2f(
+            static_cast<float>(center.x + p.x * cos_t - p.y * sin_t),
+            static_cast<float>(center.y + p.x * sin_t + p.y * cos_t));
+    };
+
+    const cv::Point2f expected_tl = rotate(local_tl);
+    const cv::Point2f expected_tr = rotate(local_tr);
+    const cv::Point2f expected_br = rotate(local_br);
+    const cv::Point2f expected_bl = rotate(local_bl);
+
+    cv::Mat image = makeBackground();
+    const std::vector<cv::Point> quad = {
+        cv::Point(static_cast<int>(std::round(expected_tl.x)),
+                  static_cast<int>(std::round(expected_tl.y))),
+        cv::Point(static_cast<int>(std::round(expected_tr.x)),
+                  static_cast<int>(std::round(expected_tr.y))),
+        cv::Point(static_cast<int>(std::round(expected_br.x)),
+                  static_cast<int>(std::round(expected_br.y))),
+        cv::Point(static_cast<int>(std::round(expected_bl.x)),
+                  static_cast<int>(std::round(expected_bl.y))),
+    };
+    cv::fillConvexPoly(image, quad, cv::Scalar(255, 255, 255));
+
+    hnu25::anti_drone::TraditionalTargetDetector detector;
+    const auto result = detector.detect(image);
+
+    check(!result.empty(), "rotated square is detected");
+    if (result.empty()) {
+        return;
+    }
+
+    const auto& obs = result.front();
+    check(obs.from_cv, "from_cv == true");
+    check(!obs.from_yolo, "from_yolo == false");
+    check(!obs.bullseye_valid, "bullseye_valid == false");
+    check(obs.corners_valid, "corners_valid == true");
+    check(std::isfinite(obs.cv_score), "cv_score is finite");
+    check(obs.cv_score >= 0.0F && obs.cv_score <= 1.0F, "cv_score in [0, 1]");
+    check(obs.cv_score > 0.85F, "cv_score > 0.85 for rotated square");
+
+    check(euclidean(obs.center, cv::Point2f(320.0F, 240.0F)) <= 4.0,
+          "center near (320, 240) within 4px");
+
+    check(euclidean(obs.corners[0], expected_tl) <= 6.0, "corner[0] is TL");
+    check(euclidean(obs.corners[1], expected_tr) <= 6.0, "corner[1] is TR");
+    check(euclidean(obs.corners[2], expected_br) <= 6.0, "corner[2] is BR");
+    check(euclidean(obs.corners[3], expected_bl) <= 6.0, "corner[3] is BL");
+}
+
 // Test 3: a wide white rectangle whose aspect ratio exceeds max_aspect_ratio.
 void testWideRectangleFiltered() {
     cv::Mat image = makeBackground();
@@ -190,6 +261,7 @@ int main() {
     const TestCase cases[] = {
         {"standard square", testStandardSquare},
         {"perspective quad", testPerspectiveQuad},
+        {"rotated square", testRotatedSquare},
         {"wide rectangle filtered", testWideRectangleFiltered},
         {"tiny noise filtered", testTinyNoiseFiltered},
         {"empty mat", testEmptyMat},
