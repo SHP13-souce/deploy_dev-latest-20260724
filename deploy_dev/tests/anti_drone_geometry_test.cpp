@@ -9,6 +9,9 @@
 
 namespace {
 
+constexpr int kImageWidth = 640;
+constexpr int kImageHeight = 480;
+
 int g_failures = 0;
 
 void check(bool condition, const std::string& message) {
@@ -21,7 +24,11 @@ void check(bool condition, const std::string& message) {
 // 640 x 480 CV_8UC3 background, deliberately a non-white "grass-like" green
 // so the white-mask stage has to actually separate the target from background.
 cv::Mat makeBackground() {
-    return cv::Mat(640, 480, CV_8UC3, cv::Scalar(40, 100, 40));
+    return cv::Mat(
+        kImageHeight,
+        kImageWidth,
+        CV_8UC3,
+        cv::Scalar(40, 100, 40));
 }
 
 double euclidean(const cv::Point2f& a, const cv::Point2f& b) {
@@ -33,6 +40,9 @@ double euclidean(const cv::Point2f& a, const cv::Point2f& b) {
 // Test 1: a clean 200x200 white square centered at (320, 240).
 void testStandardSquare() {
     cv::Mat image = makeBackground();
+    check(image.cols == kImageWidth, "image width is 640");
+    check(image.rows == kImageHeight, "image height is 480");
+
     cv::rectangle(image, cv::Point(220, 140), cv::Point(420, 340),
                   cv::Scalar(255, 255, 255), cv::FILLED);
 
@@ -155,10 +165,18 @@ void testEmptyMat() {
 void testWrongImageType() {
     hnu25::anti_drone::TraditionalTargetDetector detector;
 
-    const cv::Mat gray(640, 480, CV_8UC1, cv::Scalar(128));
+    const cv::Mat gray(
+        kImageHeight,
+        kImageWidth,
+        CV_8UC1,
+        cv::Scalar(128));
     check(detector.detect(gray).empty(), "CV_8UC1 returns empty");
 
-    const cv::Mat rgba(640, 480, CV_8UC4, cv::Scalar(0, 0, 0, 255));
+    const cv::Mat rgba(
+        kImageHeight,
+        kImageWidth,
+        CV_8UC4,
+        cv::Scalar(0, 0, 0, 255));
     check(detector.detect(rgba).empty(), "CV_8UC4 returns empty");
 }
 
