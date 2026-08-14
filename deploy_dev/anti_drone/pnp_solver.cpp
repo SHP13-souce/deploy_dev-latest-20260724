@@ -140,7 +140,7 @@ PnpResult PnpSolver::solve(const TargetObservation& observation) const {
     }
 
     // ── Reprojection error ───────────────────────────────────────────────
-    std::vector<cv::Point2f> projected_points;
+    std::vector<cv::Point2d> projected_points;
     try {
         cv::projectPoints(
             object_points,
@@ -159,9 +159,9 @@ PnpResult PnpSolver::solve(const TargetObservation& observation) const {
 
     double sum_squared_error = 0.0;
     for (std::size_t i = 0; i < image_points.size(); ++i) {
-        const double dx = static_cast<double>(projected_points[i].x) -
+        const double dx = projected_points[i].x -
                           static_cast<double>(image_points[i].x);
-        const double dy = static_cast<double>(projected_points[i].y) -
+        const double dy = projected_points[i].y -
                           static_cast<double>(image_points[i].y);
         sum_squared_error += dx * dx + dy * dy;
     }

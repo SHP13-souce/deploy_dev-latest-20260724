@@ -19,6 +19,12 @@ void check(bool condition, const std::string& message) {
     }
 }
 
+// Narrow a double-precision projected point to the float corners stored in
+// TargetObservation, without relying on implicit conversions.
+cv::Point2f toPoint2f(const cv::Point2d& p) {
+    return cv::Point2f(static_cast<float>(p.x), static_cast<float>(p.y));
+}
+
 // Shared default calibration + target geometry.
 hnu25::anti_drone::PnpSolverConfig makeConfig() {
     hnu25::anti_drone::PnpSolverConfig config;
@@ -53,13 +59,13 @@ void testKnownPoseRecovery() {
     const cv::Vec3d tvec_truth(0.15, -0.08, 3.0);
 
     const auto object_points = makeObjectPoints();
-    std::vector<cv::Point2f> projected;
+    std::vector<cv::Point2d> projected;
     cv::projectPoints(object_points, rvec_truth, tvec_truth,
                       config.camera_matrix, config.distort_coeffs, projected);
 
     hnu25::anti_drone::TargetObservation observation;
-    observation.corners = {projected[0], projected[1], projected[2],
-                           projected[3]};
+    observation.corners = {toPoint2f(projected[0]), toPoint2f(projected[1]),
+                           toPoint2f(projected[2]), toPoint2f(projected[3])};
     observation.corners_valid = true;
 
     hnu25::anti_drone::PnpSolver solver(config);
@@ -91,13 +97,13 @@ void testCameraToGimbalTransform() {
     const cv::Vec3d tvec_truth(0.15, -0.08, 3.0);
 
     const auto object_points = makeObjectPoints();
-    std::vector<cv::Point2f> projected;
+    std::vector<cv::Point2d> projected;
     cv::projectPoints(object_points, rvec_truth, tvec_truth,
                       config.camera_matrix, config.distort_coeffs, projected);
 
     hnu25::anti_drone::TargetObservation observation;
-    observation.corners = {projected[0], projected[1], projected[2],
-                           projected[3]};
+    observation.corners = {toPoint2f(projected[0]), toPoint2f(projected[1]),
+                           toPoint2f(projected[2]), toPoint2f(projected[3])};
     observation.corners_valid = true;
 
     hnu25::anti_drone::PnpSolver solver(config);
@@ -157,16 +163,16 @@ void testStrictReprojectionThreshold() {
     const cv::Vec3d tvec_truth(0.15, -0.08, 3.0);
 
     const auto object_points = makeObjectPoints();
-    std::vector<cv::Point2f> projected;
+    std::vector<cv::Point2d> projected;
     cv::projectPoints(object_points, rvec_truth, tvec_truth,
                       config.camera_matrix, config.distort_coeffs, projected);
 
     // Corrupt one corner (TR) by 8 px.
-    projected[1].x += 8.0f;
+    projected[1].x += 8.0;
 
     hnu25::anti_drone::TargetObservation observation;
-    observation.corners = {projected[0], projected[1], projected[2],
-                           projected[3]};
+    observation.corners = {toPoint2f(projected[0]), toPoint2f(projected[1]),
+                           toPoint2f(projected[2]), toPoint2f(projected[3])};
     observation.corners_valid = true;
 
     hnu25::anti_drone::PnpSolver solver(config);
@@ -192,13 +198,13 @@ void testNonFiniteGimbalOutputRejected() {
     const cv::Vec3d tvec_truth(0.15, -0.08, 3.0);
 
     const auto object_points = makeObjectPoints();
-    std::vector<cv::Point2f> projected;
+    std::vector<cv::Point2d> projected;
     cv::projectPoints(object_points, rvec_truth, tvec_truth,
                       config.camera_matrix, config.distort_coeffs, projected);
 
     hnu25::anti_drone::TargetObservation observation;
-    observation.corners = {projected[0], projected[1], projected[2],
-                           projected[3]};
+    observation.corners = {toPoint2f(projected[0]), toPoint2f(projected[1]),
+                           toPoint2f(projected[2]), toPoint2f(projected[3])};
     observation.corners_valid = true;
 
     hnu25::anti_drone::PnpSolver solver(config);
