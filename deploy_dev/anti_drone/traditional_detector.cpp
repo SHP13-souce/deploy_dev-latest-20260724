@@ -197,13 +197,147 @@ TraditionalTargetDetector::detect(const cv::Mat& bgr_image) {
             std::min(width, height) / std::max(width, height);
         const double geometry_score =
             std::sqrt(square_quality * rectangularity_quality);
-        observation.cv_score = static_cast<float>(geometry_score);
 
-        // ── Bullseye (not implemented in this stage) ─────────────────────
-        observation.bullseye_center = cv::Point2f{};
-        observation.bullseye_valid = false;
+        // ── Red bullseye analysis (inside candidate board mask) ──────────
+        const cv::Mat hsv_roi = hsv(box);
 
-        // ── Scores / sources ─────────────────────────────────────────────
+        // Board mask: the filled candidate contour translated into ROI
+        // coordinates. It excludes background inside the bounding box.
+        cv::Mat board_mask(box.height, box.width, CV_8UC1, cv::Scalar(0));
+        {
+            std::vector<cv::Point> local_contour;
+            local_contour.reserve(contour.size());
+            for (const cv::Point& p : contour) {
+                local_contour.emplace_back(p.x - box.x, p.y - box.y);
+            }
+            std::vector<std::vector<cv::Point>> local_contours{
+                std::move(local_contour)};
+            cv::drawContours(board_mask, local_contours, 0, cv::Scalar(255),
+                             cv::FILLED);
+        }
+
+        // Red mask: two hue ranges (red wraps around hue=0), then restricted
+        // to the board mask so background red outside the board is ignored.
+        cv::Mat red_mask_1;
+        cv::Mat red_mask_2;
+        cv::inRange(hsv_roi,
+                    cv::Scalar(config_.red_hue_low_1,
+                               config_.red_saturation_min,
+                               config_.red_value_min),
+                    cv::Scalar(config_.red_hue_high_1, 255, 255),
+                    red_mask_1);
+        cv::inRange(hsv_roi,
+                    cv::Scalar(config_.red_hue_low_2,
+                               config_.red_saturation_min,
+                               config_.red_value_min),
+                    cv::Scalar(config_.red_hue_high_2, 255, 255),
+                    red_mask_2);
+
+        cv::Mat red_mask;
+        cv::bitwise_or(red_mask_1, red_mask_2, red_mask);
+        cv::bitwise_and(red_mask, board_mask, red_mask);
+
+        // Red area ratio (red pixels over board pixels).
+        const int board_pixels = cv::countNonZero(board_mask);
+        const int red_pixels = cv::countNonZero(red_mask);
+        const double red_area_ratio =
+            (board_pixels <= 0)
+                ? 0.0
+                : static_cast<double>(red_pixels) /
+                      static_cast<double>(board_pixels);
+
+        // Red centroid -> bullseye center in original image coordinates.
+        cv::Point2f bullseye_center{};
+        bool have_bullseye_center = false;
+        if (red_pixels > 0) {
+            const cv::Moments m = cv::moments(red_mask, true);
+            if (m.m00 > 1e-6) {
+                const double local_x = m.m10 / m.m00;
+                const double local_y = m.m01 / m.m00;
+                bullseye_center.x =
+                    static_cast<float>(box.x + local_x);
+                bullseye_center.y =
+                    static_cast<float>(box.y + local_y);
+                have_bullseye_center = true;
+            }
+        }
+
+        // Bullseye offset relative to board center, normalized by box diag.
+        double offset_ratio = 0.0;
+        bool offset_valid = false;
+        if (have_bullseye_center) {
+            const double dx =
+                static_cast<double>(bullseye_center.x) -
+                static_cast<double>(observation.center.x);
+            const double dy =
+                static_cast<double>(bullseye_center.y) -
+                static_cast<double>(observation.center.y);
+            const double distance = std::sqrt(dx * dx + dy * dy);
+
+            const double diag = std::sqrt(
+                static_cast<double>(box.width) * box.width +
+                static_cast<double>(box.height) * box.height);
+            if (diag > 1e-6) {
+                offset_ratio = distance / diag;
+                offset_valid = true;
+            }
+        }
+
+        // bullseye_valid: red evidence present, enough red, center close.
+        const bool bullseye_valid =
+            have_bullseye_center &&
+            (red_pixels > 0) &&
+            (red_area_ratio >= config_.min_red_area_ratio) &&
+            offset_valid &&
+            (offset_ratio <= config_.max_bullseye_offset_ratio);
+
+        observation.bullseye_center =
+            have_bullseye_center ? bullseye_center : cv::Point2f{};
+        observation.bullseye_valid = bullseye_valid;
+
+        // ── Color score ──────────────────────────────────────────────────
+        double red_area_quality = 0.0;
+        if (config_.min_red_area_ratio <= 1e-9) {
+            red_area_quality = (red_pixels > 0) ? 1.0 : 0.0;
+        } else {
+            red_area_quality = std::clamp(
+                red_area_ratio / config_.min_red_area_ratio, 0.0, 1.0);
+        }
+
+        double center_quality = 0.0;
+        if (have_bullseye_center &&
+            config_.max_bullseye_offset_ratio > 1e-9) {
+            center_quality = std::clamp(
+                1.0 - offset_ratio / config_.max_bullseye_offset_ratio,
+                0.0, 1.0);
+        }
+
+        const double color_score =
+            std::sqrt(red_area_quality * center_quality);
+
+        // ── Geometry + color fusion ──────────────────────────────────────
+        const double geometry_weight =
+            std::max(0.0, static_cast<double>(config_.geometry_weight));
+        const double color_weight =
+            std::max(0.0, static_cast<double>(config_.color_weight));
+        const double weight_sum = geometry_weight + color_weight;
+
+        double cv_score = 0.0;
+        if (weight_sum > 1e-6) {
+            cv_score = (geometry_weight * geometry_score +
+                        color_weight * color_score) /
+                       weight_sum;
+        } else {
+            cv_score = geometry_score;
+        }
+        cv_score = std::clamp(cv_score, 0.0, 1.0);
+
+        // ── Final min_cv_score gate ──────────────────────────────────────
+        if (cv_score < config_.min_cv_score) {
+            continue;
+        }
+
+        observation.cv_score = static_cast<float>(cv_score);
         observation.yolo_score = 0.0F;
         observation.fused_score = observation.cv_score;
 

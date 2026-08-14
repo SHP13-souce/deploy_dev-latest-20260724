@@ -37,6 +37,16 @@ double euclidean(const cv::Point2f& a, const cv::Point2f& b) {
     return std::sqrt(dx * dx + dy * dy);
 }
 
+// A detector that only scores geometry evidence. This keeps the geometry
+// test focused on white-shape detection regardless of the (unpainted) red
+// bullseye stage.
+hnu25::anti_drone::TraditionalTargetDetector makeGeometryOnlyDetector() {
+    hnu25::anti_drone::TraditionalDetectorConfig config;
+    config.geometry_weight = 1.0F;
+    config.color_weight = 0.0F;
+    return hnu25::anti_drone::TraditionalTargetDetector(config);
+}
+
 // Test 1: a clean 200x200 white square centered at (320, 240).
 void testStandardSquare() {
     cv::Mat image = makeBackground();
@@ -46,7 +56,7 @@ void testStandardSquare() {
     cv::rectangle(image, cv::Point(220, 140), cv::Point(420, 340),
                   cv::Scalar(255, 255, 255), cv::FILLED);
 
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
     const auto result = detector.detect(image);
 
     check(!result.empty(), "standard square is detected");
@@ -108,7 +118,7 @@ void testPerspectiveQuad() {
     };
     cv::fillConvexPoly(image, quad, cv::Scalar(255, 255, 255));
 
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
     const auto result = detector.detect(image);
 
     check(!result.empty(), "perspective quad is detected");
@@ -176,7 +186,7 @@ void testRotatedSquare() {
     };
     cv::fillConvexPoly(image, quad, cv::Scalar(255, 255, 255));
 
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
     const auto result = detector.detect(image);
 
     check(!result.empty(), "rotated square is detected");
@@ -208,7 +218,7 @@ void testWideRectangleFiltered() {
     cv::rectangle(image, cv::Point(100, 200), cv::Point(540, 280),
                   cv::Scalar(255, 255, 255), cv::FILLED);
 
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
     const auto result = detector.detect(image);
     check(result.empty(), "wide rectangle (aspect > 2.20) is filtered");
 }
@@ -219,7 +229,7 @@ void testTinyNoiseFiltered() {
     cv::rectangle(image, cv::Point(320, 240), cv::Point(322, 242),
                   cv::Scalar(255, 255, 255), cv::FILLED);
 
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
     const auto result = detector.detect(image);
     check(result.empty(), "3x3 noise is filtered by min area ratio");
 }
@@ -227,14 +237,14 @@ void testTinyNoiseFiltered() {
 // Test 5: empty Mat returns empty without crashing.
 void testEmptyMat() {
     cv::Mat empty;
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
     const auto result = detector.detect(empty);
     check(result.empty(), "empty Mat returns empty");
 }
 
 // Test 6: non-BGR image types return empty without crashing.
 void testWrongImageType() {
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    auto detector = makeGeometryOnlyDetector();
 
     const cv::Mat gray(
         kImageHeight,

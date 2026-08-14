@@ -57,7 +57,7 @@ struct TraditionalDetectorConfig {
 
     // -------------------- Bullseye validation --------------------
 
-    // Red pixels inside candidate ROI / candidate ROI area.
+    // Red pixels inside candidate board mask / candidate board mask area.
     double min_red_area_ratio = 0.003;
 
     // Distance between detected bullseye center and board center,
