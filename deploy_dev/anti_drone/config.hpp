@@ -1,8 +1,10 @@
 #pragma once
 
+#include "anti_drone/pnp_solver.hpp"
 #include "anti_drone/traditional_detector.hpp"
 
 #include <filesystem>
+#include <optional>
 
 namespace hnu25::anti_drone {
 
@@ -28,9 +30,25 @@ struct VisionCompensationConfig {
     double z_offset_m = 0.0;
 };
 
+// Camera / PnP calibration. The PnP solver only consumes the fields stored in
+// PnpSolverConfig (camera_matrix, distort_coeffs, R_camera2gimbal,
+// t_camera2gimbal, max_reprojection_error_px). R_gimbal2imubody is part of the
+// original project's real extrinsic chain and is kept here for later stages,
+// even though the PnP solver does not use it yet.
+struct CalibrationConfig {
+    PnpSolverConfig pnp;
+    cv::Matx33d R_gimbal2imubody = cv::Matx33d::eye();
+};
+
 // Aggregates all anti-drone configuration into a single loadable unit.
 struct AntiDroneConfig {
     TraditionalDetectorConfig traditional_detector;
+
+    // Optional: real camera calibration may not be available yet. When the
+    // YAML contains none of the calibration keys this stays nullopt, so the
+    // existing detector / image_preview workflow keeps working unchanged.
+    std::optional<CalibrationConfig> calibration;
+
     VisionCompensationConfig vision_compensation;
 };
 

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace hnu25::anti_drone {
 
@@ -164,6 +165,119 @@ void validateVisionCompensationConfig(
     }
 }
 
+// Reads a root-level 3x3 matrix expressed as a row-major YAML sequence of
+// exactly 9 finite doubles. This mirrors the original project's Eigen::RowMajor
+// semantics: values[0..2] are row 0, values[3..5] row 1, values[6..8] row 2.
+// No auto-correction is performed; malformed input throws std::runtime_error.
+cv::Matx33d matrix3x3FromYaml(const YAML::Node& root, const char* key) {
+    const std::vector<double> values =
+        root[key].as<std::vector<double>>();
+    if (values.size() != 9) {
+        throw std::runtime_error(std::string(key) +
+                                 " must have exactly 9 elements");
+    }
+    for (const double v : values) {
+        if (!std::isfinite(v)) {
+            throw std::runtime_error(std::string(key) + " must be finite");
+        }
+    }
+    cv::Matx33d m;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            m(r, c) = values[r * 3 + c];
+        }
+    }
+    return m;
+}
+
+// Loads the optional root-level calibration section. Uses the original
+// project's root-level keys (camera_matrix, distort_coeffs, R_camera2gimbal,
+// t_camera2gimbal, R_gimbal2imubody, max_reprojection_error_px) with an
+// all-or-nothing rule: if none of the six keys appear, calibration is nullopt
+// and loading succeeds; if any appear, the five core keys must all be present.
+std::optional<CalibrationConfig> loadCalibrationConfig(
+    const YAML::Node& root) {
+    const bool has_camera_matrix = static_cast<bool>(root["camera_matrix"]);
+    const bool has_distort_coeffs = static_cast<bool>(root["distort_coeffs"]);
+    const bool has_R_camera2gimbal =
+        static_cast<bool>(root["R_camera2gimbal"]);
+    const bool has_t_camera2gimbal =
+        static_cast<bool>(root["t_camera2gimbal"]);
+    const bool has_R_gimbal2imubody =
+        static_cast<bool>(root["R_gimbal2imubody"]);
+    const bool has_max_reprojection =
+        static_cast<bool>(root["max_reprojection_error_px"]);
+
+    const bool any = has_camera_matrix || has_distort_coeffs ||
+                     has_R_camera2gimbal || has_t_camera2gimbal ||
+                     has_R_gimbal2imubody || has_max_reprojection;
+    if (!any) {
+        return std::nullopt;
+    }
+
+    // Once the user begins providing calibration, the full core set is
+    // required: partial calibration must not silently enter the system.
+    if (!(has_camera_matrix && has_distort_coeffs && has_R_camera2gimbal &&
+          has_t_camera2gimbal && has_R_gimbal2imubody)) {
+        throw std::runtime_error(
+            "incomplete calibration: camera_matrix, distort_coeffs, "
+            "R_camera2gimbal, t_camera2gimbal and R_gimbal2imubody are all "
+            "required");
+    }
+
+    CalibrationConfig calib;
+
+    calib.pnp.camera_matrix = matrix3x3FromYaml(root, "camera_matrix");
+    if (!(calib.pnp.camera_matrix(0, 0) > 0.0)) {
+        throw std::runtime_error("camera_matrix fx must be > 0");
+    }
+    if (!(calib.pnp.camera_matrix(1, 1) > 0.0)) {
+        throw std::runtime_error("camera_matrix fy must be > 0");
+    }
+
+    std::vector<double> distort =
+        root["distort_coeffs"].as<std::vector<double>>();
+    if (distort.empty()) {
+        throw std::runtime_error("distort_coeffs must not be empty");
+    }
+    for (const double d : distort) {
+        if (!std::isfinite(d)) {
+            throw std::runtime_error("distort_coeffs must be finite");
+        }
+    }
+    calib.pnp.distort_coeffs = std::move(distort);
+
+    calib.pnp.R_camera2gimbal = matrix3x3FromYaml(root, "R_camera2gimbal");
+
+    const std::vector<double> t =
+        root["t_camera2gimbal"].as<std::vector<double>>();
+    if (t.size() != 3) {
+        throw std::runtime_error(
+            "t_camera2gimbal must have exactly 3 elements");
+    }
+    for (const double v : t) {
+        if (!std::isfinite(v)) {
+            throw std::runtime_error("t_camera2gimbal must be finite");
+        }
+    }
+    calib.pnp.t_camera2gimbal = cv::Vec3d(t[0], t[1], t[2]);
+
+    calib.R_gimbal2imubody = matrix3x3FromYaml(root, "R_gimbal2imubody");
+
+    // max_reprojection_error_px is optional and defaults to the struct's 5.0.
+    if (has_max_reprojection) {
+        const double max_err =
+            root["max_reprojection_error_px"].as<double>();
+        if (!std::isfinite(max_err) || !(max_err > 0.0)) {
+            throw std::runtime_error(
+                "max_reprojection_error_px must be finite and > 0");
+        }
+        calib.pnp.max_reprojection_error_px = max_err;
+    }
+
+    return calib;
+}
+
 }  // namespace
 
 AntiDroneConfig loadAntiDroneConfig(
@@ -239,6 +353,9 @@ AntiDroneConfig loadAntiDroneConfig(
         node["nms_iou_threshold"].as<float>(td.nms_iou_threshold);
 
     validateTraditionalDetectorConfig(td);
+
+    // ── calibration (optional) ───────────────────────────────────────────
+    config.calibration = loadCalibrationConfig(root);
 
     // ── vision_compensation (optional) ───────────────────────────────────
     if (const YAML::Node comp = root["vision_compensation"]) {
