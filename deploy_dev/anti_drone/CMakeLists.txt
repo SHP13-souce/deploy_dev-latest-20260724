@@ -9,4 +9,5 @@ target_include_directories(anti_drone PUBLIC
 
 target_link_libraries(anti_drone PUBLIC
     opencv_core
+    opencv_imgproc
 )
