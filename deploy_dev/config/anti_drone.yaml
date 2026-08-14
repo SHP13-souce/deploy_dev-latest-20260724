@@ -1,0 +1,42 @@
+traditional_detector:
+  white_saturation_max: 80
+  white_value_min: 150
+
+  red_hue_low_1: 0
+  red_hue_high_1: 15
+  red_hue_low_2: 165
+  red_hue_high_2: 179
+  red_saturation_min: 80
+  red_value_min: 60
+
+  min_candidate_area_ratio: 0.0001
+  max_candidate_area_ratio: 0.85
+
+  min_aspect_ratio: 0.45
+  max_aspect_ratio: 2.20
+
+  min_rectangularity: 0.55
+  polygon_epsilon_ratio: 0.03
+
+  min_red_area_ratio: 0.003
+  max_bullseye_offset_ratio: 0.25
+
+  morphology_kernel_size: 3
+  morphology_open_iterations: 1
+  morphology_close_iterations: 2
+
+  geometry_weight: 0.50
+  color_weight: 0.50
+  min_cv_score: 0.55
+
+  nms_iou_threshold: 0.40
+
+# Camera/PnP calibration will be added later using the original
+# project root-level keys. Do not nest them under traditional_detector:
+#
+# camera_matrix
+# distort_coeffs
+# R_camera2gimbal
+# t_camera2gimbal
+# R_gimbal2imubody
+# max_reprojection_error_px

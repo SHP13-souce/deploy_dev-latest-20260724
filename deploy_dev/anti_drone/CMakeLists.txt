@@ -1,5 +1,6 @@
 add_library(anti_drone STATIC
     traditional_detector.cpp
+    config.cpp
 )
 
 target_include_directories(anti_drone PUBLIC
@@ -10,6 +11,7 @@ target_include_directories(anti_drone PUBLIC
 target_link_libraries(anti_drone PUBLIC
     opencv_core
     opencv_imgproc
+    yaml-cpp
 )
 
 add_executable(
