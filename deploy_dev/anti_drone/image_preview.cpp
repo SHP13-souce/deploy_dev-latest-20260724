@@ -1,3 +1,4 @@
+#include "anti_drone/config.hpp"
 #include "anti_drone/traditional_detector.hpp"
 
 #include <opencv2/core.hpp>
@@ -6,6 +7,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -21,14 +23,25 @@ void printPoint2f(const char* name, const cv::Point2f& p) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::cout
-            << "Usage: anti_drone_image_preview <input_image> <output_image>\n";
+    if (argc != 4) {
+        std::cout << "Usage: anti_drone_image_preview "
+                     "<input_image> <output_image> <config_yaml>\n";
         return 1;
     }
 
     const std::string input_path = argv[1];
     const std::string output_path = argv[2];
+    const std::string config_path = argv[3];
+
+    // ── Load config ───────────────────────────────────────────────────────
+    hnu25::anti_drone::TraditionalDetectorConfig config;
+    try {
+        config = hnu25::anti_drone::loadTraditionalDetectorConfig(config_path);
+    } catch (const std::exception& error) {
+        std::cerr << "Failed to load config: " << config_path << ": "
+                  << error.what() << '\n';
+        return 4;
+    }
 
     // ── Read image ────────────────────────────────────────────────────────
     const cv::Mat image = cv::imread(input_path, cv::IMREAD_COLOR);
@@ -39,11 +52,12 @@ int main(int argc, char** argv) {
     // imread with IMREAD_COLOR guarantees a non-empty result is CV_8UC3 BGR.
 
     // ── Detect ────────────────────────────────────────────────────────────
-    hnu25::anti_drone::TraditionalTargetDetector detector;
+    hnu25::anti_drone::TraditionalTargetDetector detector(config);
     const auto observations = detector.detect(image);
 
     // ── Console summary ───────────────────────────────────────────────────
     std::cout << "Input: " << input_path << '\n';
+    std::cout << "Config: " << config_path << '\n';
     std::cout << "Image: " << image.cols << 'x' << image.rows << '\n';
     std::cout << "Detections: " << observations.size() << '\n';
 
