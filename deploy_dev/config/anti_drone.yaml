@@ -31,6 +31,17 @@ traditional_detector:
 
   nms_iou_threshold: 0.40
 
+# These are NOT calibration parameters. They are manual residual corrections
+# applied during on-site fine-tuning, after geometric calibration. Defaults
+# are all zero.
+vision_compensation:
+  yaw_offset_deg: 0.0
+  pitch_offset_deg: 0.0
+
+  x_offset_m: 0.0
+  y_offset_m: 0.0
+  z_offset_m: 0.0
+
 # Camera/PnP calibration will be added later using the original
 # project root-level keys. Do not nest them under traditional_detector:
 #

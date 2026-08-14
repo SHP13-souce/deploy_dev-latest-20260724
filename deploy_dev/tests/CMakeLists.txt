@@ -79,6 +79,22 @@ add_test(
     COMMAND anti_drone_nms_test
 )
 
+add_executable(
+    anti_drone_config_test
+    anti_drone_config_test.cpp
+)
+
+target_link_libraries(
+    anti_drone_config_test
+    PRIVATE
+    anti_drone
+)
+
+add_test(
+    NAME anti_drone_config
+    COMMAND anti_drone_config_test
+)
+
 if(BUILD_APPLICATIONS)
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)

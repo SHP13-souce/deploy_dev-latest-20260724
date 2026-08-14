@@ -142,88 +142,127 @@ void validateTraditionalDetectorConfig(
     }
 }
 
+// Compensation values only need to be finite at this stage: on-site mechanical
+// mounting and axis conventions are not yet measured, so no magnitude bounds
+// are enforced yet.
+void validateVisionCompensationConfig(
+    const VisionCompensationConfig& config) {
+    if (!std::isfinite(config.yaw_offset_deg)) {
+        fail("yaw_offset_deg must be finite");
+    }
+    if (!std::isfinite(config.pitch_offset_deg)) {
+        fail("pitch_offset_deg must be finite");
+    }
+    if (!std::isfinite(config.x_offset_m)) {
+        fail("x_offset_m must be finite");
+    }
+    if (!std::isfinite(config.y_offset_m)) {
+        fail("y_offset_m must be finite");
+    }
+    if (!std::isfinite(config.z_offset_m)) {
+        fail("z_offset_m must be finite");
+    }
+}
+
 }  // namespace
 
-TraditionalDetectorConfig loadTraditionalDetectorConfig(
+AntiDroneConfig loadAntiDroneConfig(
     const std::filesystem::path& path) {
     const YAML::Node root = YAML::LoadFile(path.string());
 
+    AntiDroneConfig config;
+
+    // ── traditional_detector (required) ──────────────────────────────────
     const YAML::Node node = root["traditional_detector"];
     if (!node || !node.IsMap()) {
         throw std::runtime_error(
             "traditional_detector configuration section is required");
     }
 
-    TraditionalDetectorConfig config;
+    TraditionalDetectorConfig& td = config.traditional_detector;
 
     // ── White target board ───────────────────────────────────────────────
-    config.white_saturation_max =
-        node["white_saturation_max"].as<int>(config.white_saturation_max);
-    config.white_value_min =
-        node["white_value_min"].as<int>(config.white_value_min);
+    td.white_saturation_max =
+        node["white_saturation_max"].as<int>(td.white_saturation_max);
+    td.white_value_min =
+        node["white_value_min"].as<int>(td.white_value_min);
 
     // ── Red bullseye ─────────────────────────────────────────────────────
-    config.red_hue_low_1 =
-        node["red_hue_low_1"].as<int>(config.red_hue_low_1);
-    config.red_hue_high_1 =
-        node["red_hue_high_1"].as<int>(config.red_hue_high_1);
-    config.red_hue_low_2 =
-        node["red_hue_low_2"].as<int>(config.red_hue_low_2);
-    config.red_hue_high_2 =
-        node["red_hue_high_2"].as<int>(config.red_hue_high_2);
-    config.red_saturation_min =
-        node["red_saturation_min"].as<int>(config.red_saturation_min);
-    config.red_value_min =
-        node["red_value_min"].as<int>(config.red_value_min);
+    td.red_hue_low_1 = node["red_hue_low_1"].as<int>(td.red_hue_low_1);
+    td.red_hue_high_1 = node["red_hue_high_1"].as<int>(td.red_hue_high_1);
+    td.red_hue_low_2 = node["red_hue_low_2"].as<int>(td.red_hue_low_2);
+    td.red_hue_high_2 = node["red_hue_high_2"].as<int>(td.red_hue_high_2);
+    td.red_saturation_min =
+        node["red_saturation_min"].as<int>(td.red_saturation_min);
+    td.red_value_min = node["red_value_min"].as<int>(td.red_value_min);
 
     // ── Candidate geometry ───────────────────────────────────────────────
-    config.min_candidate_area_ratio =
+    td.min_candidate_area_ratio =
         node["min_candidate_area_ratio"].as<double>(
-            config.min_candidate_area_ratio);
-    config.max_candidate_area_ratio =
+            td.min_candidate_area_ratio);
+    td.max_candidate_area_ratio =
         node["max_candidate_area_ratio"].as<double>(
-            config.max_candidate_area_ratio);
-    config.min_aspect_ratio =
-        node["min_aspect_ratio"].as<double>(config.min_aspect_ratio);
-    config.max_aspect_ratio =
-        node["max_aspect_ratio"].as<double>(config.max_aspect_ratio);
-    config.min_rectangularity =
-        node["min_rectangularity"].as<double>(config.min_rectangularity);
-    config.polygon_epsilon_ratio =
-        node["polygon_epsilon_ratio"].as<double>(config.polygon_epsilon_ratio);
+            td.max_candidate_area_ratio);
+    td.min_aspect_ratio =
+        node["min_aspect_ratio"].as<double>(td.min_aspect_ratio);
+    td.max_aspect_ratio =
+        node["max_aspect_ratio"].as<double>(td.max_aspect_ratio);
+    td.min_rectangularity =
+        node["min_rectangularity"].as<double>(td.min_rectangularity);
+    td.polygon_epsilon_ratio =
+        node["polygon_epsilon_ratio"].as<double>(td.polygon_epsilon_ratio);
 
     // ── Bullseye validation ──────────────────────────────────────────────
-    config.min_red_area_ratio =
-        node["min_red_area_ratio"].as<double>(config.min_red_area_ratio);
-    config.max_bullseye_offset_ratio =
+    td.min_red_area_ratio =
+        node["min_red_area_ratio"].as<double>(td.min_red_area_ratio);
+    td.max_bullseye_offset_ratio =
         node["max_bullseye_offset_ratio"].as<double>(
-            config.max_bullseye_offset_ratio);
+            td.max_bullseye_offset_ratio);
 
     // ── Morphology ───────────────────────────────────────────────────────
-    config.morphology_kernel_size =
-        node["morphology_kernel_size"].as<int>(config.morphology_kernel_size);
-    config.morphology_open_iterations =
+    td.morphology_kernel_size =
+        node["morphology_kernel_size"].as<int>(td.morphology_kernel_size);
+    td.morphology_open_iterations =
         node["morphology_open_iterations"].as<int>(
-            config.morphology_open_iterations);
-    config.morphology_close_iterations =
+            td.morphology_open_iterations);
+    td.morphology_close_iterations =
         node["morphology_close_iterations"].as<int>(
-            config.morphology_close_iterations);
+            td.morphology_close_iterations);
 
     // ── Scoring ──────────────────────────────────────────────────────────
-    config.geometry_weight =
-        node["geometry_weight"].as<float>(config.geometry_weight);
-    config.color_weight =
-        node["color_weight"].as<float>(config.color_weight);
-    config.min_cv_score =
-        node["min_cv_score"].as<float>(config.min_cv_score);
+    td.geometry_weight = node["geometry_weight"].as<float>(td.geometry_weight);
+    td.color_weight = node["color_weight"].as<float>(td.color_weight);
+    td.min_cv_score = node["min_cv_score"].as<float>(td.min_cv_score);
 
     // ── Candidate deduplication ──────────────────────────────────────────
-    config.nms_iou_threshold =
-        node["nms_iou_threshold"].as<float>(config.nms_iou_threshold);
+    td.nms_iou_threshold =
+        node["nms_iou_threshold"].as<float>(td.nms_iou_threshold);
 
-    validateTraditionalDetectorConfig(config);
+    validateTraditionalDetectorConfig(td);
+
+    // ── vision_compensation (optional) ───────────────────────────────────
+    if (const YAML::Node comp = root["vision_compensation"]) {
+        if (!comp.IsMap()) {
+            throw std::runtime_error("vision_compensation must be a mapping");
+        }
+        VisionCompensationConfig& vc = config.vision_compensation;
+        vc.yaw_offset_deg =
+            comp["yaw_offset_deg"].as<double>(vc.yaw_offset_deg);
+        vc.pitch_offset_deg =
+            comp["pitch_offset_deg"].as<double>(vc.pitch_offset_deg);
+        vc.x_offset_m = comp["x_offset_m"].as<double>(vc.x_offset_m);
+        vc.y_offset_m = comp["y_offset_m"].as<double>(vc.y_offset_m);
+        vc.z_offset_m = comp["z_offset_m"].as<double>(vc.z_offset_m);
+    }
+
+    validateVisionCompensationConfig(config.vision_compensation);
 
     return config;
+}
+
+TraditionalDetectorConfig loadTraditionalDetectorConfig(
+    const std::filesystem::path& path) {
+    return loadAntiDroneConfig(path).traditional_detector;
 }
 
 }  // namespace hnu25::anti_drone
