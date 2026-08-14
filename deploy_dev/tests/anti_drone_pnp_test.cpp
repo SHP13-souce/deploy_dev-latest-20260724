@@ -180,6 +180,37 @@ void testStrictReprojectionThreshold() {
     }
 }
 
+// Test 6: a finite input that overflows during the camera -> gimbal
+// transform must not be accepted as valid, and must not leak a non-finite
+// xyz_gimbal into the public result.
+void testNonFiniteGimbalOutputRejected() {
+    auto config = makeConfig();
+    config.R_camera2gimbal = cv::Matx33d::eye();
+    config.R_camera2gimbal(2, 2) = 1.0e308;  // finite, but 1e308 * z overflows
+
+    const cv::Vec3d rvec_truth(0.08, -0.10, 0.03);
+    const cv::Vec3d tvec_truth(0.15, -0.08, 3.0);
+
+    const auto object_points = makeObjectPoints();
+    std::vector<cv::Point2f> projected;
+    cv::projectPoints(object_points, rvec_truth, tvec_truth,
+                      config.camera_matrix, config.distort_coeffs, projected);
+
+    hnu25::anti_drone::TargetObservation observation;
+    observation.corners = {projected[0], projected[1], projected[2],
+                           projected[3]};
+    observation.corners_valid = true;
+
+    hnu25::anti_drone::PnpSolver solver(config);
+    const auto result = solver.solve(observation);
+
+    check(!result.valid, "non-finite gimbal output rejected (invalid)");
+    check(std::isfinite(result.xyz_gimbal[0]) &&
+              std::isfinite(result.xyz_gimbal[1]) &&
+              std::isfinite(result.xyz_gimbal[2]),
+          "xyz_gimbal stays finite in result");
+}
+
 }  // namespace
 
 int main() {
@@ -193,6 +224,7 @@ int main() {
         {"corners invalid", testCornersInvalid},
         {"invalid geometry", testInvalidGeometry},
         {"strict reprojection threshold", testStrictReprojectionThreshold},
+        {"non-finite gimbal output rejected", testNonFiniteGimbalOutputRejected},
     };
 
     for (const auto& c : cases) {

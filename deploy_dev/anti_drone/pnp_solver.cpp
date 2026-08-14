@@ -175,9 +175,14 @@ PnpResult PnpSolver::solve(const TargetObservation& observation) const {
     result.reprojection_error_px = rms;
     result.rvec = rvec;
     result.xyz_camera = tvec;
-    result.xyz_gimbal =
+
+    const cv::Vec3d xyz_gimbal =
         config_.R_camera2gimbal * result.xyz_camera +
         config_.t_camera2gimbal;
+    if (!finite(xyz_gimbal)) {
+        return result;
+    }
+    result.xyz_gimbal = xyz_gimbal;
 
     if (rms <= config_.max_reprojection_error_px) {
         result.valid = true;
