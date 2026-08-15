@@ -108,15 +108,28 @@ void VisionTelemetryStreamParser::recordSequence(
         have_last_sequence_ = true;
         return;
     }
-    const std::uint32_t expected = last_sequence_ + 1;  // uint32 wraps.
-    if (sequence != expected && sequence != last_sequence_) {
-        // Forward gap or reorder: the wrapped difference counts the number of
-        // missing sequence numbers (uint32 rollover is naturally continuous).
-        stats_.sequence_gaps +=
-            static_cast<std::uint32_t>(sequence - expected);
+
+    // Forward delta modulo 2^32 (uint32 subtraction wraps), so rollover
+    // (0xFFFFFFFF -> 0) yields delta == 1 and reads as consecutive.
+    const std::uint32_t delta = sequence - last_sequence_;
+
+    if (delta == 0) {
+        // Duplicate: no gap, baseline unchanged.
+        return;
     }
-    // A duplicate (sequence == last_sequence_) contributes no gap.
-    last_sequence_ = sequence;
+    if (delta == 1) {
+        // Consecutive: no gap, advance baseline.
+        last_sequence_ = sequence;
+        return;
+    }
+    if (delta < 0x80000000u) {
+        // Forward advance with a gap: delta - 1 missing sequence numbers.
+        stats_.sequence_gaps += delta - 1;
+        last_sequence_ = sequence;
+        return;
+    }
+    // delta >= 0x80000000: an old / out-of-order packet. Do not count a
+    // (huge wrapped) gap and do not move the baseline backward.
 }
 
 }  // namespace hnu25::anti_drone

@@ -177,6 +177,47 @@ int main() {
               "duplicate sequence produces no gap");
     }
 
+    // ── Test 8a: out-of-order — forward gap then stale packet ─────────────
+    {
+        VisionTelemetryStreamParser parser;
+        std::vector<std::uint8_t> data;
+        for (const std::uint32_t s : {100u, 101u, 105u, 103u}) {
+            const auto p = makePacket(s);
+            data.insert(data.end(), p.begin(), p.end());
+        }
+        parser.push(data);
+        VisionTelemetry t;
+        std::vector<std::uint32_t> got;
+        while (parser.pop(t)) {
+            got.push_back(t.sequence);
+        }
+        check(got.size() == 4, "out-of-order: four packets popped");
+        check(got.size() == 4 && got[0] == 100 && got[1] == 101 &&
+                  got[2] == 105 && got[3] == 103,
+              "out-of-order: pop order preserved");
+        check(parser.stats().sequence_gaps == 3,
+              "out-of-order: gaps == 3 (stale 103 ignored)");
+    }
+
+    // ── Test 8b: out-of-order — stale packet then consecutive ─────────────
+    {
+        VisionTelemetryStreamParser parser;
+        std::vector<std::uint8_t> data;
+        for (const std::uint32_t s : {100u, 99u, 101u}) {
+            const auto p = makePacket(s);
+            data.insert(data.end(), p.begin(), p.end());
+        }
+        parser.push(data);
+        VisionTelemetry t;
+        std::vector<std::uint32_t> got;
+        while (parser.pop(t)) {
+            got.push_back(t.sequence);
+        }
+        check(got.size() == 3, "out-of-order: three packets popped");
+        check(parser.stats().sequence_gaps == 0,
+              "out-of-order: gaps == 0 (stale 99 ignored, 101 consecutive)");
+    }
+
     // ── Test 9: reset clears parser state/stats ───────────────────────────
     {
         VisionTelemetryStreamParser parser;
