@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
