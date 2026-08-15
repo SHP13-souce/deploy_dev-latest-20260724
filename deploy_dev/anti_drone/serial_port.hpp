@@ -1,8 +1,6 @@
 #pragma once
 /// @file   anti_drone/serial_port.hpp
-/// @brief  精简串口封装 (Linux) —— 通信组
-///
-/// 基于同项目 serial 库精简，仅保留 Linux 端核心功能
+/// @brief  Linux serial-port wrapper used by the Anti-Drone diagnostic telemetry.
 
 #include <string>
 #include <vector>
@@ -16,7 +14,7 @@ public:
     ~SerialPort();
 
     // 打开串口
-    bool open(const std::string& device = "/dev/rm_cboard", int baud_rate = 115200);
+    bool open(const std::string& device, int baud_rate = 115200);
 
     // 关闭串口
     void close();
