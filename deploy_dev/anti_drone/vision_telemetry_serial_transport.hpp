@@ -1,7 +1,7 @@
 #pragma once
 
 #include "anti_drone/vision_telemetry_transport.hpp"
-#include "communication/serial_port.hpp"
+#include "anti_drone/serial_port.hpp"
 
 #include <cstdint>
 #include <string>

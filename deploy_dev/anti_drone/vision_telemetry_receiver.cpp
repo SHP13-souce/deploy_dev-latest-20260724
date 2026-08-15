@@ -2,7 +2,7 @@
 #include "anti_drone/vision_telemetry.hpp"
 #include "anti_drone/vision_telemetry_stream.hpp"
 
-#include "communication/serial_port.hpp"
+#include "anti_drone/serial_port.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -19,8 +19,8 @@
 // stream. It opens a serial device, feeds every read chunk into a
 // VisionTelemetryStreamParser, and prints each decoded packet.
 //
-// This tool is deliberately read-only: it never constructs a GimbalCommand,
-// links sp_protocol, or touches any hardware / actuation path. It only decodes
+// This tool is deliberately read-only: it never issues any control, fire, or
+// actuation command, and it never touches any hardware path. It only decodes
 // and displays the incoming vision-result stream.
 //
 // Usage: anti_drone_vision_telemetry_receiver <device> [baud_rate]

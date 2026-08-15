@@ -1,5 +1,5 @@
 #pragma once
-/// @file   communication/serial_port.hpp
+/// @file   anti_drone/serial_port.hpp
 /// @brief  精简串口封装 (Linux) —— 通信组
 ///
 /// 基于同项目 serial 库精简，仅保留 Linux 端核心功能

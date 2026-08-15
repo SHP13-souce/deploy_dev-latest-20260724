@@ -145,22 +145,18 @@ target_link_libraries(
     opencv_core
 )
 
-# Diagnostic serial transport. Built unconditionally so it is available even
-# when BUILD_APPLICATIONS=OFF. It reuses the existing SerialPort implementation
-# (communication/serial_port.cpp) directly as a source, rather than linking the
-# `communication` target, which is only defined when BUILD_APPLICATIONS=ON.
-# Only the serial-port wrapper is reused — NOT sp_protocol.
+# Diagnostic serial transport. Built unconditionally. It reuses the migrated
+# SerialPort implementation (anti_drone/serial_port.cpp) directly as a source.
 add_library(
     anti_drone_telemetry_serial STATIC
     vision_telemetry_serial_transport.cpp
-    ${CMAKE_SOURCE_DIR}/communication/serial_port.cpp
+    serial_port.cpp
 )
 
 target_include_directories(
     anti_drone_telemetry_serial
     PUBLIC
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/communication
 )
 
 target_link_libraries(
@@ -190,7 +186,6 @@ target_include_directories(
     anti_drone_vision_telemetry_receiver
     PRIVATE
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/communication
     ${OpenCV_INCLUDE_DIRS}
 )
 

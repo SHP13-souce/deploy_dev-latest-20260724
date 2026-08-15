@@ -10,7 +10,7 @@
 
 namespace hnu25::anti_drone {
 
-// Tracking state. Fully independent of the sp_core Tracker.
+// Tracking state.
 enum class TrackState {
     LOST,
     DETECTING,

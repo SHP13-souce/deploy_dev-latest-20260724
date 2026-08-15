@@ -75,5 +75,5 @@ statistics (`packets_submitted`, `packets_accepted`, `bytes_accepted`,
 
 `anti_drone_vision_telemetry_receiver <device> [baud_rate]` reads a serial
 stream, re-parses it with `VisionTelemetryStreamParser`, and prints each decoded
-packet. It is read-only: it never constructs a `GimbalCommand`, links
-`sp_protocol`, or touches any hardware / actuation path.
+packet. It is read-only: it never issues any control / fire / actuator
+command, and it never touches any hardware / actuation path.
