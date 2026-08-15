@@ -24,8 +24,18 @@ struct VisionSolution {
     double pitch_compensated_rad = 0.0;
 };
 
-// Pure function deriving a compensated vision solution from a raw PnP result
-// and the residual compensation parameters. Never mutates its inputs.
+// Pure function deriving a compensated vision solution from a raw gimbal-frame
+// position (meters) and the residual compensation parameters. The position may
+// come from PnpResult.xyz_gimbal or Prediction3D.predicted_position_gimbal_m.
+// This overload owns all of the xyz / yaw / pitch math and never mutates its
+// inputs.
+VisionSolution makeVisionSolution(
+    const cv::Vec3d& xyz_gimbal_raw,
+    const VisionCompensationConfig& compensation);
+
+// Convenience overload over a raw PnP result. Returns invalid when the PnP
+// result is invalid; otherwise delegates to the Vec3d overload above so there
+// is a single implementation of the compensation math.
 VisionSolution makeVisionSolution(
     const PnpResult& pnp,
     const VisionCompensationConfig& compensation);

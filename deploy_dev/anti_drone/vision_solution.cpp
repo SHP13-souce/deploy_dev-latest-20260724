@@ -25,15 +25,11 @@ double wrapAngle(double angle) {
 }  // namespace
 
 VisionSolution makeVisionSolution(
-    const PnpResult& pnp,
+    const cv::Vec3d& xyz_gimbal_raw,
     const VisionCompensationConfig& compensation) {
     VisionSolution result;
 
-    if (!pnp.valid) {
-        return result;
-    }
-
-    if (!finite(pnp.xyz_gimbal)) {
+    if (!finite(xyz_gimbal_raw)) {
         return result;
     }
 
@@ -48,7 +44,7 @@ VisionSolution makeVisionSolution(
         return result;
     }
 
-    const cv::Vec3d raw = pnp.xyz_gimbal;
+    const cv::Vec3d raw = xyz_gimbal_raw;
     result.xyz_gimbal_raw = raw;
 
     // ── Raw geometric yaw / pitch (line-of-sight, no ballistics) ─────────
@@ -109,6 +105,15 @@ VisionSolution makeVisionSolution(
 
     result.valid = true;
     return result;
+}
+
+VisionSolution makeVisionSolution(
+    const PnpResult& pnp,
+    const VisionCompensationConfig& compensation) {
+    if (!pnp.valid) {
+        return {};
+    }
+    return makeVisionSolution(pnp.xyz_gimbal, compensation);
 }
 
 }  // namespace hnu25::anti_drone
