@@ -245,6 +245,24 @@ add_test(
         ${CMAKE_SOURCE_DIR}/config/anti_drone.yaml
 )
 
+add_executable(
+    anti_drone_diagnostic_frame_processor_test
+    anti_drone_diagnostic_frame_processor_test.cpp
+)
+
+target_link_libraries(
+    anti_drone_diagnostic_frame_processor_test
+    PRIVATE
+    anti_drone
+    opencv_core
+    opencv_imgproc
+)
+
+add_test(
+    NAME anti_drone_diagnostic_frame_processor
+    COMMAND anti_drone_diagnostic_frame_processor_test
+)
+
 if(BUILD_APPLICATIONS)
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)

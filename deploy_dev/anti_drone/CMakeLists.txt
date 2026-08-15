@@ -7,6 +7,7 @@ add_library(anti_drone STATIC
     predictor.cpp
     diagnostic_pipeline.cpp
     diagnostic_csv.cpp
+    diagnostic_frame_processor.cpp
 )
 
 target_include_directories(anti_drone PUBLIC

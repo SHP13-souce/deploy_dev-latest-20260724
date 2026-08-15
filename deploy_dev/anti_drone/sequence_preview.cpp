@@ -1,8 +1,6 @@
 #include "anti_drone/config.hpp"
 #include "anti_drone/diagnostic_csv.hpp"
-#include "anti_drone/diagnostic_pipeline.hpp"
-#include "anti_drone/pnp_solver.hpp"
-#include "anti_drone/traditional_detector.hpp"
+#include "anti_drone/diagnostic_frame_processor.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -11,18 +9,19 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <optional>
 #include <string>
 #include <vector>
 
-// Offline multi-frame visual replay entry point: image sequence -> detector ->
-// optional PnP -> optional DiagnosticPipeline -> optional diagnostic CSV. No
-// camera, no communication, no control commands, no automatic execution.
+// Offline multi-frame visual replay entry point: image sequence ->
+// DiagnosticFrameProcessor (detector -> optional PnP -> optional
+// DiagnosticPipeline) -> optional diagnostic CSV. No camera, no communication,
+// no control commands, no automatic execution.
 int main(int argc, char** argv) {
     if (argc < 4 || argc > 5) {
         std::cout << "Usage: anti_drone_sequence_preview "
@@ -91,23 +90,14 @@ int main(int argc, char** argv) {
             return 3;
         }
 
-        hnu25::anti_drone::TraditionalTargetDetector detector(
-            config.traditional_detector);
+        // ── Reusable per-frame core: detector -> optional PnP -> optional
+        //    DiagnosticPipeline ────────────────────────────────────────────
+        hnu25::anti_drone::DiagnosticFrameProcessor processor(config);
 
-        // ── Optional calibration-dependent stages ─────────────────────────
-        // Without calibration: detector-only. Never fabricate a default
-        // PnpSolverConfig or a fake-looking 3D diagnostic CSV.
         const bool has_calibration = config.calibration.has_value();
-
-        std::optional<hnu25::anti_drone::PnpSolver> solver;
-        std::optional<hnu25::anti_drone::DiagnosticPipeline> pipeline;
         std::ofstream csv;
 
         if (has_calibration) {
-            solver.emplace(config.calibration->pnp);
-            pipeline.emplace(
-                hnu25::anti_drone::makeDiagnosticPipelineConfig(config));
-
             csv.open(output_csv);
             if (!csv.is_open()) {
                 std::cerr << "Failed to open output CSV: " << output_csv
@@ -153,37 +143,21 @@ int main(int argc, char** argv) {
                            std::chrono::steady_clock::duration>(
                            std::chrono::duration<double>(seconds));
 
-            const auto observations = detector.detect(image);
+            const auto frame_result = processor.process(image, timestamp);
+            const auto& observations = frame_result.observations;
+
             total_detections += observations.size();
             if (!observations.empty()) {
                 ++frames_with_detection;
             }
 
-            std::size_t frame_pnp_attempts = 0;
-            std::size_t frame_pnp_valid = 0;
-            hnu25::anti_drone::DiagnosticFrameResult result;
-
             if (has_calibration) {
-                std::vector<hnu25::anti_drone::PnpResult> measurements;
-                for (const auto& obs : observations) {
-                    if (!obs.corners_valid) {
-                        continue;
-                    }
-                    const auto pnp = solver->solve(obs);
-                    ++frame_pnp_attempts;
-                    ++pnp_attempt_count;
-                    if (pnp.valid) {
-                        ++frame_pnp_valid;
-                        ++pnp_valid_count;
-                        measurements.push_back(pnp);
-                    }
-                }
-
-                result = pipeline->update(measurements, timestamp);
+                pnp_attempt_count += frame_result.pnp_attempt_count;
+                pnp_valid_count += frame_result.measurements.size();
 
                 try {
                     hnu25::anti_drone::writeDiagnosticCsvRow(
-                        csv, index, seconds, result);
+                        csv, index, seconds, frame_result.diagnostic);
                 } catch (const std::exception& error) {
                     std::cerr << "Failed to write diagnostic CSV: "
                               << error.what() << '\n';
@@ -207,16 +181,18 @@ int main(int argc, char** argv) {
             std::cout << "  detections: " << observations.size() << '\n';
 
             if (has_calibration) {
-                std::cout << "  pnp_attempts: " << frame_pnp_attempts << '\n';
-                std::cout << "  pnp_valid: " << frame_pnp_valid << '\n';
+                std::cout << "  pnp_attempts: "
+                          << frame_result.pnp_attempt_count << '\n';
+                std::cout << "  pnp_valid: "
+                          << frame_result.measurements.size() << '\n';
                 std::cout << "  track_state: "
                           << hnu25::anti_drone::trackStateName(
-                                 result.track_state)
+                                 frame_result.diagnostic.track_state)
                           << '\n';
                 std::cout << "  track_available: " << std::boolalpha
-                          << result.track_available << '\n';
-                std::cout << "  prediction_valid: " << result.prediction_valid
-                          << '\n';
+                          << frame_result.diagnostic.track_available << '\n';
+                std::cout << "  prediction_valid: "
+                          << frame_result.diagnostic.prediction_valid << '\n';
             }
         }
 
