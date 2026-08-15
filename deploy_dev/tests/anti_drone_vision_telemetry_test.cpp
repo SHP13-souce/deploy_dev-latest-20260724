@@ -3,9 +3,12 @@
 #include <opencv2/core.hpp>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -26,6 +29,18 @@ void check(bool condition, const std::string& message) {
 
 bool approxFloat(float a, float b, float eps = 1e-5F) {
     return std::fabs(a - b) <= eps;
+}
+
+// Overwrites 4 bytes at `offset` with the little-endian IEEE-754 bits of
+// `value`, matching the encoder's float32 layout.
+void putFloat(std::vector<std::uint8_t>& bytes, std::size_t offset,
+              float value) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    for (int i = 0; i < 4; ++i) {
+        bytes[offset + i] =
+            static_cast<std::uint8_t>((bits >> (8 * i)) & 0xFFu);
+    }
 }
 
 // A hand-built, encode-ready telemetry with every field set to a distinctive
@@ -272,6 +287,111 @@ void testCountSaturation() {
           "pnp_measurement_count saturated to 65535");
 }
 
+// Test 11: encode refuses a version the decoder itself would reject.
+void testEncodeRejectsBadVersion() {
+    VisionTelemetry telemetry = makeTestTelemetry();
+    telemetry.version = 99;
+
+    bool threw = false;
+    try {
+        hnu25::anti_drone::encodeVisionTelemetry(telemetry);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    check(threw, "version 99 -> encode throws invalid_argument");
+}
+
+// Test 12: a finite double that overflows to +inf in float must be treated as
+// an invalid solution (no Inf is emitted).
+void testBuilderOverflowToInfinity() {
+    DiagnosticFrameProcessorResult result;
+    result.calibration_available = true;
+    result.diagnostic_enabled = true;
+    result.diagnostic.solution_valid = true;
+    result.diagnostic.predicted_yaw_rad = std::numeric_limits<double>::max();
+    result.diagnostic.predicted_pitch_rad = 0.0;
+    result.diagnostic.compensated_position_gimbal_m = cv::Vec3d(1.0, 2.0, 3.0);
+
+    const VisionTelemetry telemetry =
+        hnu25::anti_drone::makeVisionTelemetry(result, 0, 0);
+
+    check(!telemetry.vision_valid, "vision_valid == false");
+    check(telemetry.yaw_rad == 0.0F, "yaw_rad == 0");
+    check(telemetry.pitch_rad == 0.0F, "pitch_rad == 0");
+    check(telemetry.x_m == 0.0F && telemetry.y_m == 0.0F &&
+              telemetry.z_m == 0.0F,
+          "xyz == 0");
+}
+
+// Test 13: a negative prediction_horizon_s on the wire (with a valid CRC) is
+// rejected, mirroring the encode-side finite && >= 0 contract.
+void testDecodeRejectsNegativeHorizon() {
+    std::vector<std::uint8_t> bytes =
+        hnu25::anti_drone::encodeVisionTelemetry(makeTestTelemetry());
+    // prediction_horizon_s float32 lives at payload offset 40:
+    // header(4) + seq(4) + ts(8) + flags(2) + track(1) + reserved(1)
+    // + yaw(4) + pitch(4) + x(4) + y(4) + z(4) = 40.
+    putFloat(bytes, 40, -1.0F);
+
+    const std::uint16_t crc = hnu25::anti_drone::visionTelemetryCrc16(
+        bytes.data(), bytes.size() - 2);
+    bytes[bytes.size() - 2] = static_cast<std::uint8_t>(crc & 0xFFu);
+    bytes[bytes.size() - 1] = static_cast<std::uint8_t>((crc >> 8) & 0xFFu);
+
+    VisionTelemetry decoded;
+    check(!hnu25::anti_drone::decodeVisionTelemetry(bytes, decoded),
+          "negative horizon -> decode false");
+}
+
+// Test 14: status_flags bit 5 (undefined in v1) must be rejected, not ignored.
+void testDecodeRejectsUnknownStatusBits() {
+    std::vector<std::uint8_t> bytes =
+        hnu25::anti_drone::encodeVisionTelemetry(makeTestTelemetry());
+    // status_flags uint16 at payload offset 0 (byte offset 16); bit 5 lives in
+    // its low byte.
+    bytes[16] |= 0x20u;
+
+    const std::uint16_t crc = hnu25::anti_drone::visionTelemetryCrc16(
+        bytes.data(), bytes.size() - 2);
+    bytes[bytes.size() - 2] = static_cast<std::uint8_t>(crc & 0xFFu);
+    bytes[bytes.size() - 1] = static_cast<std::uint8_t>((crc >> 8) & 0xFFu);
+
+    VisionTelemetry decoded;
+    check(!hnu25::anti_drone::decodeVisionTelemetry(bytes, decoded),
+          "unknown status bit -> decode false");
+}
+
+// Test 15: a non-zero reserved byte is rejected.
+void testDecodeRejectsNonZeroReserved() {
+    std::vector<std::uint8_t> bytes =
+        hnu25::anti_drone::encodeVisionTelemetry(makeTestTelemetry());
+    // reserved byte at payload offset 2 (byte offset 19).
+    bytes[19] = 1u;
+
+    const std::uint16_t crc = hnu25::anti_drone::visionTelemetryCrc16(
+        bytes.data(), bytes.size() - 2);
+    bytes[bytes.size() - 2] = static_cast<std::uint8_t>(crc & 0xFFu);
+    bytes[bytes.size() - 1] = static_cast<std::uint8_t>((crc >> 8) & 0xFFu);
+
+    VisionTelemetry decoded;
+    check(!hnu25::anti_drone::decodeVisionTelemetry(bytes, decoded),
+          "non-zero reserved -> decode false");
+}
+
+// Test 16: an out-of-range TrackState cannot be encoded.
+void testEncodeRejectsInvalidTrackState() {
+    VisionTelemetry telemetry = makeTestTelemetry();
+    telemetry.track_state = static_cast<TrackState>(99);
+
+    bool threw = false;
+    try {
+        hnu25::anti_drone::encodeVisionTelemetry(telemetry);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    check(threw, "invalid TrackState -> encode throws invalid_argument");
+}
+
 }  // namespace
 
 int main() {
@@ -290,6 +410,12 @@ int main() {
         {"bad track state", testBadTrackState},
         {"builder non-finite", testBuilderNonFinite},
         {"count saturation", testCountSaturation},
+        {"encode rejects bad version", testEncodeRejectsBadVersion},
+        {"builder double->float overflow", testBuilderOverflowToInfinity},
+        {"decode rejects negative horizon", testDecodeRejectsNegativeHorizon},
+        {"decode rejects unknown status bits", testDecodeRejectsUnknownStatusBits},
+        {"decode rejects non-zero reserved", testDecodeRejectsNonZeroReserved},
+        {"encode rejects invalid track state", testEncodeRejectsInvalidTrackState},
     };
 
     for (const auto& c : cases) {

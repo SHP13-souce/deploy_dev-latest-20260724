@@ -130,7 +130,7 @@ std::uint8_t encodeTrackState(TrackState state) {
         case TrackState::TRACKING: return 2;
         case TrackState::TEMP_LOST: return 3;
     }
-    return 0;  // unreachable for valid enum values
+    throw std::invalid_argument("invalid TrackState for VisionTelemetry");
 }
 
 bool decodeTrackState(std::uint8_t value, TrackState& state) {
@@ -202,12 +202,16 @@ VisionTelemetry makeVisionTelemetry(
     telemetry.track_state = diagnostic.track_state;
 
     // prediction_horizon_s is a config-validated value, but guard the
-    // double -> float conversion anyway (check finite before converting).
+    // double -> float conversion: the double must be finite and >= 0, and the
+    // resulting float must still be finite (a huge finite double overflows).
     const double horizon = diagnostic.prediction_horizon_s;
-    telemetry.prediction_horizon_s =
-        (std::isfinite(horizon) && horizon >= 0.0)
-            ? static_cast<float>(horizon)
-            : 0.0F;
+    if (std::isfinite(horizon) && horizon >= 0.0) {
+        const float horizon_f = static_cast<float>(horizon);
+        telemetry.prediction_horizon_s =
+            std::isfinite(horizon_f) ? horizon_f : 0.0F;
+    } else {
+        telemetry.prediction_horizon_s = 0.0F;
+    }
 
     telemetry.vision_valid = diagnostic.solution_valid;
     if (!diagnostic.solution_valid) {
@@ -221,11 +225,23 @@ VisionTelemetry makeVisionTelemetry(
     }
 
     const cv::Vec3d& position = diagnostic.compensated_position_gimbal_m;
+
+    // Convert to float only after verifying the double is finite, then verify
+    // the float result is still finite: a very large finite double overflows
+    // to infinity in a float.
+    const float yaw_f = static_cast<float>(diagnostic.predicted_yaw_rad);
+    const float pitch_f = static_cast<float>(diagnostic.predicted_pitch_rad);
+    const float x_f = static_cast<float>(position[0]);
+    const float y_f = static_cast<float>(position[1]);
+    const float z_f = static_cast<float>(position[2]);
+
     if (!std::isfinite(diagnostic.predicted_yaw_rad) ||
         !std::isfinite(diagnostic.predicted_pitch_rad) ||
         !std::isfinite(position[0]) || !std::isfinite(position[1]) ||
-        !std::isfinite(position[2])) {
-        // Non-finite solution values: mark invalid and zero them out.
+        !std::isfinite(position[2]) ||
+        !std::isfinite(yaw_f) || !std::isfinite(pitch_f) ||
+        !std::isfinite(x_f) || !std::isfinite(y_f) || !std::isfinite(z_f)) {
+        // Non-finite (or overflowing) solution values: mark invalid and zero.
         telemetry.vision_valid = false;
         telemetry.yaw_rad = 0.0F;
         telemetry.pitch_rad = 0.0F;
@@ -235,16 +251,20 @@ VisionTelemetry makeVisionTelemetry(
         return telemetry;
     }
 
-    telemetry.yaw_rad = static_cast<float>(diagnostic.predicted_yaw_rad);
-    telemetry.pitch_rad = static_cast<float>(diagnostic.predicted_pitch_rad);
-    telemetry.x_m = static_cast<float>(position[0]);
-    telemetry.y_m = static_cast<float>(position[1]);
-    telemetry.z_m = static_cast<float>(position[2]);
+    telemetry.yaw_rad = yaw_f;
+    telemetry.pitch_rad = pitch_f;
+    telemetry.x_m = x_f;
+    telemetry.y_m = y_f;
+    telemetry.z_m = z_f;
     return telemetry;
 }
 
 std::vector<std::uint8_t> encodeVisionTelemetry(
     const VisionTelemetry& telemetry) {
+    if (telemetry.version != kVisionTelemetryVersion) {
+        throw std::invalid_argument(
+            "version must equal kVisionTelemetryVersion");
+    }
     if (!std::isfinite(telemetry.prediction_horizon_s) ||
         telemetry.prediction_horizon_s < 0.0F) {
         throw std::invalid_argument(
@@ -314,8 +334,7 @@ bool decodeVisionTelemetry(const std::vector<std::uint8_t>& bytes,
     temp.timestamp_us = readU64(p); p += 8;
     const std::uint16_t status_flags = readU16(p); p += 2;
     const std::uint8_t track_state_wire = readU8(p); p += 1;
-    // reserved byte: read and discard (not validated).
-    p += 1;
+    const std::uint8_t reserved = readU8(p); p += 1;
     temp.yaw_rad = readF32(p); p += 4;
     temp.pitch_rad = readF32(p); p += 4;
     temp.x_m = readF32(p); p += 4;
@@ -324,6 +343,14 @@ bool decodeVisionTelemetry(const std::vector<std::uint8_t>& bytes,
     temp.prediction_horizon_s = readF32(p); p += 4;
     temp.detection_count = readU16(p); p += 2;
     temp.pnp_measurement_count = readU16(p); p += 2;
+
+    // v1 only defines status bits 0..4; unknown bits mean a newer protocol.
+    if ((status_flags & ~0x001Fu) != 0) {
+        return false;
+    }
+    if (reserved != 0) {
+        return false;
+    }
 
     decodeStatusFlags(status_flags, temp);
 
@@ -334,6 +361,10 @@ bool decodeVisionTelemetry(const std::vector<std::uint8_t>& bytes,
     if (!std::isfinite(temp.yaw_rad) || !std::isfinite(temp.pitch_rad) ||
         !std::isfinite(temp.x_m) || !std::isfinite(temp.y_m) ||
         !std::isfinite(temp.z_m) || !std::isfinite(temp.prediction_horizon_s)) {
+        return false;
+    }
+    // encode requires horizon >= 0; decode enforces the same contract.
+    if (temp.prediction_horizon_s < 0.0F) {
         return false;
     }
 
