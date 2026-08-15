@@ -147,6 +147,23 @@ add_test(
     COMMAND anti_drone_tracker_test
 )
 
+add_executable(
+    anti_drone_predictor_test
+    anti_drone_predictor_test.cpp
+)
+
+target_link_libraries(
+    anti_drone_predictor_test
+    PRIVATE
+    anti_drone
+    opencv_core
+)
+
+add_test(
+    NAME anti_drone_predictor
+    COMMAND anti_drone_predictor_test
+)
+
 if(BUILD_APPLICATIONS)
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)

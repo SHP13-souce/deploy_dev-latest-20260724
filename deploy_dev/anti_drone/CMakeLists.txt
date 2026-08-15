@@ -4,6 +4,7 @@ add_library(anti_drone STATIC
     pnp_solver.cpp
     vision_solution.cpp
     tracker.cpp
+    predictor.cpp
 )
 
 target_include_directories(anti_drone PUBLIC
