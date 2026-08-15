@@ -1,6 +1,8 @@
 #pragma once
 
 #include "anti_drone/pnp_solver.hpp"
+#include "anti_drone/predictor.hpp"
+#include "anti_drone/tracker.hpp"
 #include "anti_drone/traditional_detector.hpp"
 
 #include <filesystem>
@@ -43,6 +45,11 @@ struct CalibrationConfig {
 // Aggregates all anti-drone configuration into a single loadable unit.
 struct AntiDroneConfig {
     TraditionalDetectorConfig traditional_detector;
+
+    // Runtime algorithm tuning for the 3D tracker and prediction stages. These
+    // are independent of camera calibration and vision compensation.
+    TrackerConfig tracker;
+    PredictionConfig prediction;
 
     // Optional: real camera calibration may not be available yet. When the
     // YAML contains none of the calibration keys this stays nullopt, so the

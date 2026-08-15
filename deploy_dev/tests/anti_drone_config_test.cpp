@@ -366,6 +366,220 @@ void testDefaultReprojectionThreshold() {
           "max_reprojection_error_px defaults to 5.0");
 }
 
+// Test 12: full tracker + prediction override coexists with compensation.
+void testFullTrackerPredictionOverride() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.60\n"
+        "\n"
+        "tracker:\n"
+        "  min_detect_count: 3\n"
+        "  max_missed_count: 7\n"
+        "  max_dt_s: 0.15\n"
+        "  max_association_distance_m: 0.65\n"
+        "  position_gain: 0.8\n"
+        "  velocity_gain: 0.25\n"
+        "\n"
+        "prediction:\n"
+        "  horizon_s: 0.075\n"
+        "\n"
+        "vision_compensation:\n"
+        "  yaw_offset_deg: 1.0\n";
+
+    const auto path = writeTempYaml("tracker_pred", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& tracker = config.tracker;
+    check(tracker.min_detect_count == 3, "min_detect_count == 3");
+    check(tracker.max_missed_count == 7, "max_missed_count == 7");
+    check(approx(tracker.max_dt_s, 0.15), "max_dt_s == 0.15");
+    check(approx(tracker.max_association_distance_m, 0.65),
+          "max_association_distance_m == 0.65");
+    check(approx(tracker.position_gain, 0.8), "position_gain == 0.8");
+    check(approx(tracker.velocity_gain, 0.25), "velocity_gain == 0.25");
+    check(approx(config.prediction.horizon_s, 0.075), "horizon_s == 0.075");
+    check(approx(config.vision_compensation.yaw_offset_deg, 1.0),
+          "yaw_offset_deg == 1.0 (coexists)");
+}
+
+// Test 13: absent tracker/prediction sections keep struct defaults.
+void testSectionsAbsentKeepDefaults() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.60\n";
+
+    const auto path = writeTempYaml("defaults", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& tracker = config.tracker;
+    check(tracker.min_detect_count == 2, "min_detect_count default == 2");
+    check(tracker.max_missed_count == 5, "max_missed_count default == 5");
+    check(approx(tracker.max_dt_s, 0.25), "max_dt_s default == 0.25");
+    check(approx(tracker.max_association_distance_m, 1.0),
+          "max_association_distance_m default == 1.0");
+    check(approx(tracker.position_gain, 1.0), "position_gain default == 1.0");
+    check(approx(tracker.velocity_gain, 1.0), "velocity_gain default == 1.0");
+    check(config.prediction.horizon_s == 0.0, "horizon_s default == 0.0");
+}
+
+// Test 14: a partial tracker override changes only that field.
+void testPartialTrackerOverride() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.60\n"
+        "\n"
+        "tracker:\n"
+        "  velocity_gain: 0.3\n";
+
+    const auto path = writeTempYaml("partial", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& tracker = config.tracker;
+    check(approx(tracker.velocity_gain, 0.3), "velocity_gain == 0.3");
+    check(tracker.min_detect_count == 2, "min_detect_count default == 2");
+    check(tracker.max_missed_count == 5, "max_missed_count default == 5");
+    check(approx(tracker.max_dt_s, 0.25), "max_dt_s default == 0.25");
+    check(approx(tracker.max_association_distance_m, 1.0),
+          "max_association_distance_m default == 1.0");
+    check(approx(tracker.position_gain, 1.0), "position_gain default == 1.0");
+}
+
+// Test 15: a non-mapping tracker section must throw std::runtime_error.
+void testTrackerWrongNodeType() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "tracker: 123\n";
+
+    const auto path = writeTempYaml("tracker_wrongtype", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+
+    check(threw, "non-mapping tracker throws std::runtime_error");
+}
+
+// Test 16: each invalid tracker field value must throw std::runtime_error.
+void testInvalidTrackerValues() {
+    const char* fields[] = {
+        "min_detect_count: 0\n",
+        "max_missed_count: -1\n",
+        "max_dt_s: 0.0\n",
+        "max_association_distance_m: -0.1\n",
+        "position_gain: 1.1\n",
+        "velocity_gain: -0.1\n",
+        "velocity_gain: .nan\n",
+    };
+
+    int index = 0;
+    for (const char* field : fields) {
+        const std::string yaml =
+            std::string("traditional_detector:\n"
+                        "  min_cv_score: 0.55\n"
+                        "\n"
+                        "tracker:\n"
+                        "  ") +
+            field;
+
+        const auto path =
+            writeTempYaml("invalid_tracker_" + std::to_string(index), yaml);
+        bool threw = false;
+        try {
+            hnu25::anti_drone::loadAntiDroneConfig(path);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        std::filesystem::remove(path);
+
+        check(threw, std::string("invalid tracker value throws: ") + field);
+        ++index;
+    }
+}
+
+// Test 17: a non-mapping prediction section must throw std::runtime_error.
+void testPredictionWrongNodeType() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "prediction: 123\n";
+
+    const auto path = writeTempYaml("prediction_wrongtype", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+
+    check(threw, "non-mapping prediction throws std::runtime_error");
+}
+
+// Test 18: negative and non-finite prediction horizons must throw.
+void testInvalidPredictionHorizon() {
+    {
+        const std::string yaml =
+            "traditional_detector:\n"
+            "  min_cv_score: 0.55\n"
+            "\n"
+            "prediction:\n"
+            "  horizon_s: -0.01\n";
+
+        const auto path = writeTempYaml("prediction_neg", yaml);
+        bool threw = false;
+        try {
+            hnu25::anti_drone::loadAntiDroneConfig(path);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        std::filesystem::remove(path);
+        check(threw, "negative horizon throws std::runtime_error");
+    }
+    {
+        const std::string yaml =
+            "traditional_detector:\n"
+            "  min_cv_score: 0.55\n"
+            "\n"
+            "prediction:\n"
+            "  horizon_s: .nan\n";
+
+        const auto path = writeTempYaml("prediction_nan", yaml);
+        bool threw = false;
+        try {
+            hnu25::anti_drone::loadAntiDroneConfig(path);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        std::filesystem::remove(path);
+        check(threw, "NaN horizon throws std::runtime_error");
+    }
+}
+
+// Test 19: horizon_s == 0.0 is a valid way to disable prediction.
+void testZeroPredictionHorizonValid() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "prediction:\n"
+        "  horizon_s: 0.0\n";
+
+    const auto path = writeTempYaml("prediction_zero", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.prediction.horizon_s == 0.0, "horizon_s == 0.0");
+}
+
 }  // namespace
 
 int main() {
@@ -385,6 +599,14 @@ int main() {
         {"invalid matrix size", testInvalidMatrixSize},
         {"invalid fx", testInvalidFx},
         {"default reprojection threshold", testDefaultReprojectionThreshold},
+        {"full tracker prediction override", testFullTrackerPredictionOverride},
+        {"sections absent keep defaults", testSectionsAbsentKeepDefaults},
+        {"partial tracker override", testPartialTrackerOverride},
+        {"tracker wrong node type", testTrackerWrongNodeType},
+        {"invalid tracker values", testInvalidTrackerValues},
+        {"prediction wrong node type", testPredictionWrongNodeType},
+        {"invalid prediction horizon", testInvalidPredictionHorizon},
+        {"zero prediction horizon valid", testZeroPredictionHorizonValid},
     };
 
     for (const auto& c : cases) {

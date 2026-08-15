@@ -165,6 +165,41 @@ void validateVisionCompensationConfig(
     }
 }
 
+// Tracker tuning must satisfy the same constraints TargetTracker3D enforces in
+// its constructor. Loader-side validation throws instead of silently clamping:
+// a YAML typo should fail fast at startup rather than run with a wrong value.
+void validateTrackerConfig(const TrackerConfig& config) {
+    if (config.min_detect_count < 1) {
+        fail("min_detect_count must be >= 1");
+    }
+    if (config.max_missed_count < 0) {
+        fail("max_missed_count must be >= 0");
+    }
+    if (!std::isfinite(config.max_dt_s) || !(config.max_dt_s > 0.0)) {
+        fail("max_dt_s must be finite and > 0");
+    }
+    if (!std::isfinite(config.max_association_distance_m) ||
+        !(config.max_association_distance_m > 0.0)) {
+        fail("max_association_distance_m must be finite and > 0");
+    }
+    if (!std::isfinite(config.position_gain) ||
+        !(config.position_gain > 0.0) || config.position_gain > 1.0) {
+        fail("position_gain must be finite and within (0, 1]");
+    }
+    if (!std::isfinite(config.velocity_gain) || config.velocity_gain < 0.0 ||
+        config.velocity_gain > 1.0) {
+        fail("velocity_gain must be finite and within [0, 1]");
+    }
+}
+
+// Prediction horizon has no meaningful upper bound yet: real system latency has
+// not been measured, so no magic cap is enforced. Only finiteness and >= 0.
+void validatePredictionConfig(const PredictionConfig& config) {
+    if (!std::isfinite(config.horizon_s) || config.horizon_s < 0.0) {
+        fail("horizon_s must be finite and >= 0");
+    }
+}
+
 // Reads a root-level 3x3 matrix expressed as a row-major YAML sequence of
 // exactly 9 finite doubles. This mirrors the original project's Eigen::RowMajor
 // semantics: values[0..2] are row 0, values[3..5] row 1, values[6..8] row 2.
@@ -353,6 +388,40 @@ AntiDroneConfig loadAntiDroneConfig(
         node["nms_iou_threshold"].as<float>(td.nms_iou_threshold);
 
     validateTraditionalDetectorConfig(td);
+
+    // ── tracker (optional) ────────────────────────────────────────────────
+    if (const YAML::Node trk = root["tracker"]) {
+        if (!trk.IsMap()) {
+            throw std::runtime_error("tracker must be a mapping");
+        }
+        TrackerConfig& tracker = config.tracker;
+        tracker.min_detect_count =
+            trk["min_detect_count"].as<int>(tracker.min_detect_count);
+        tracker.max_missed_count =
+            trk["max_missed_count"].as<int>(tracker.max_missed_count);
+        tracker.max_dt_s = trk["max_dt_s"].as<double>(tracker.max_dt_s);
+        tracker.max_association_distance_m =
+            trk["max_association_distance_m"].as<double>(
+                tracker.max_association_distance_m);
+        tracker.position_gain =
+            trk["position_gain"].as<double>(tracker.position_gain);
+        tracker.velocity_gain =
+            trk["velocity_gain"].as<double>(tracker.velocity_gain);
+    }
+
+    validateTrackerConfig(config.tracker);
+
+    // ── prediction (optional) ─────────────────────────────────────────────
+    if (const YAML::Node pred = root["prediction"]) {
+        if (!pred.IsMap()) {
+            throw std::runtime_error("prediction must be a mapping");
+        }
+        PredictionConfig& prediction = config.prediction;
+        prediction.horizon_s =
+            pred["horizon_s"].as<double>(prediction.horizon_s);
+    }
+
+    validatePredictionConfig(config.prediction);
 
     // ── calibration (optional) ───────────────────────────────────────────
     config.calibration = loadCalibrationConfig(root);
