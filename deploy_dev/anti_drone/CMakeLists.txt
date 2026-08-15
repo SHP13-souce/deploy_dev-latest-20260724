@@ -41,3 +41,22 @@ target_link_libraries(
     opencv_imgproc
     opencv_imgcodecs
 )
+
+add_executable(
+    anti_drone_runtime_preview
+    runtime_preview.cpp
+)
+
+target_include_directories(
+    anti_drone_runtime_preview
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    anti_drone_runtime_preview
+    PRIVATE
+    anti_drone
+    opencv_core
+)

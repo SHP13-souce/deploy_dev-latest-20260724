@@ -238,6 +238,13 @@ add_test(
     COMMAND anti_drone_production_config_smoke_test
 )
 
+add_test(
+    NAME anti_drone_runtime_preview_smoke
+    COMMAND
+        anti_drone_runtime_preview
+        ${CMAKE_SOURCE_DIR}/config/anti_drone.yaml
+)
+
 if(BUILD_APPLICATIONS)
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
