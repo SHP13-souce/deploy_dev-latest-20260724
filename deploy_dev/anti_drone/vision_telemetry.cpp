@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -152,6 +154,20 @@ std::uint16_t saturateU16(std::size_t value) {
     return static_cast<std::uint16_t>(value);
 }
 
+// Converts a double to float only when the result is guaranteed to be a finite
+// float: the source must be finite and within [-FLT_MAX, +FLT_MAX]. Otherwise
+// returns nullopt. This checks the range *before* the cast rather than relying
+// on post-cast std::isfinite, because casting an out-of-range double to float
+// is undefined behaviour (and would otherwise produce Inf).
+std::optional<float> safeFloat(double value) {
+    const double limit =
+        static_cast<double>(std::numeric_limits<float>::max());
+    if (!std::isfinite(value) || value > limit || value < -limit) {
+        return std::nullopt;
+    }
+    return static_cast<float>(value);
+}
+
 }  // namespace
 
 // CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, refin false, refout false,
@@ -202,16 +218,13 @@ VisionTelemetry makeVisionTelemetry(
     telemetry.track_state = diagnostic.track_state;
 
     // prediction_horizon_s is a config-validated value, but guard the
-    // double -> float conversion: the double must be finite and >= 0, and the
-    // resulting float must still be finite (a huge finite double overflows).
+    // double -> float conversion: it must be finite, non-negative, and within
+    // float range before converting.
     const double horizon = diagnostic.prediction_horizon_s;
-    if (std::isfinite(horizon) && horizon >= 0.0) {
-        const float horizon_f = static_cast<float>(horizon);
-        telemetry.prediction_horizon_s =
-            std::isfinite(horizon_f) ? horizon_f : 0.0F;
-    } else {
-        telemetry.prediction_horizon_s = 0.0F;
-    }
+    const std::optional<float> horizon_f =
+        (horizon >= 0.0) ? safeFloat(horizon) : std::nullopt;
+    telemetry.prediction_horizon_s =
+        horizon_f.has_value() ? *horizon_f : 0.0F;
 
     telemetry.vision_valid = diagnostic.solution_valid;
     if (!diagnostic.solution_valid) {
@@ -226,22 +239,18 @@ VisionTelemetry makeVisionTelemetry(
 
     const cv::Vec3d& position = diagnostic.compensated_position_gimbal_m;
 
-    // Convert to float only after verifying the double is finite, then verify
-    // the float result is still finite: a very large finite double overflows
-    // to infinity in a float.
-    const float yaw_f = static_cast<float>(diagnostic.predicted_yaw_rad);
-    const float pitch_f = static_cast<float>(diagnostic.predicted_pitch_rad);
-    const float x_f = static_cast<float>(position[0]);
-    const float y_f = static_cast<float>(position[1]);
-    const float z_f = static_cast<float>(position[2]);
+    // Convert only when each double is safely representable as a finite float.
+    const std::optional<float> yaw_f =
+        safeFloat(diagnostic.predicted_yaw_rad);
+    const std::optional<float> pitch_f =
+        safeFloat(diagnostic.predicted_pitch_rad);
+    const std::optional<float> x_f = safeFloat(position[0]);
+    const std::optional<float> y_f = safeFloat(position[1]);
+    const std::optional<float> z_f = safeFloat(position[2]);
 
-    if (!std::isfinite(diagnostic.predicted_yaw_rad) ||
-        !std::isfinite(diagnostic.predicted_pitch_rad) ||
-        !std::isfinite(position[0]) || !std::isfinite(position[1]) ||
-        !std::isfinite(position[2]) ||
-        !std::isfinite(yaw_f) || !std::isfinite(pitch_f) ||
-        !std::isfinite(x_f) || !std::isfinite(y_f) || !std::isfinite(z_f)) {
-        // Non-finite (or overflowing) solution values: mark invalid and zero.
+    if (!yaw_f.has_value() || !pitch_f.has_value() ||
+        !x_f.has_value() || !y_f.has_value() || !z_f.has_value()) {
+        // Non-finite or out-of-range solution values: mark invalid and zero.
         telemetry.vision_valid = false;
         telemetry.yaw_rad = 0.0F;
         telemetry.pitch_rad = 0.0F;
@@ -251,11 +260,11 @@ VisionTelemetry makeVisionTelemetry(
         return telemetry;
     }
 
-    telemetry.yaw_rad = yaw_f;
-    telemetry.pitch_rad = pitch_f;
-    telemetry.x_m = x_f;
-    telemetry.y_m = y_f;
-    telemetry.z_m = z_f;
+    telemetry.yaw_rad = *yaw_f;
+    telemetry.pitch_rad = *pitch_f;
+    telemetry.x_m = *x_f;
+    telemetry.y_m = *y_f;
+    telemetry.z_m = *z_f;
     return telemetry;
 }
 
