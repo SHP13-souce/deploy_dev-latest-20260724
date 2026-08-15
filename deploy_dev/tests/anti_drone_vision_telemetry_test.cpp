@@ -64,6 +64,8 @@ VisionTelemetry makeTestTelemetry() {
     telemetry.prediction_horizon_s = 0.05F;
     telemetry.detection_count = 2;
     telemetry.pnp_measurement_count = 1;
+    telemetry.yaw_speed_rad_s = 0.75F;
+    telemetry.pitch_speed_rad_s = -0.5F;
     return telemetry;
 }
 
@@ -194,6 +196,10 @@ void testRoundTrip() {
           "decoded prediction_horizon_s");
     check(decoded.detection_count == 2, "decoded detection_count");
     check(decoded.pnp_measurement_count == 1, "decoded pnp_measurement_count");
+    check(approxFloat(decoded.yaw_speed_rad_s, 0.75F),
+          "decoded yaw_speed_rad_s");
+    check(approxFloat(decoded.pitch_speed_rad_s, -0.5F),
+          "decoded pitch_speed_rad_s");
 }
 
 // Test 5: flipping a payload byte (before the CRC) breaks the CRC check.

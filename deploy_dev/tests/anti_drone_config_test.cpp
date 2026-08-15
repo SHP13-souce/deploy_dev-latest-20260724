@@ -690,6 +690,121 @@ void testSerialDiagnosticLoad() {
           "telemetry flush_after_write == true");
 }
 
+// Test 25: a valid SERIAL config loads with every field set.
+void testSerialLoad() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  mode: \"serial\"\n"
+        "  device: \"/dev/ttyUSB0\"\n"
+        "  baud_rate: 115200\n"
+        "  max_consecutive_failures: 5\n"
+        "  flush_after_write: false\n";
+
+    const auto path = writeTempYaml("telemetry_serial_prod", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.telemetry.mode ==
+              hnu25::anti_drone::TelemetryTransportMode::SERIAL,
+          "telemetry mode == SERIAL");
+    check(config.telemetry.device == "/dev/ttyUSB0",
+          "telemetry device == /dev/ttyUSB0");
+    check(config.telemetry.baud_rate == 115200, "telemetry baud_rate == 115200");
+}
+
+// Test 26: SERIAL with an empty device must throw.
+void testSerialEmptyDevice() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  mode: \"serial\"\n"
+        "  device: \"\"\n";
+
+    const auto path = writeTempYaml("telemetry_serial_empty_device", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "serial with empty device throws");
+}
+
+// Test 27: gimbal overrides load, unspecified fields keep defaults.
+void testGimbalOverride() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "gimbal:\n"
+        "  enable: false\n"
+        "  send_speed: true\n"
+        "  speed_filter_alpha: 0.7\n";
+
+    const auto path = writeTempYaml("gimbal_override", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& gimbal = config.gimbal;
+    check(gimbal.enable == false, "gimbal enable == false");
+    check(gimbal.send_speed == true, "gimbal send_speed == true");
+    check(approx(gimbal.speed_filter_alpha, 0.7),
+          "gimbal speed_filter_alpha == 0.7");
+}
+
+// Test 28: absent gimbal section keeps struct defaults.
+void testGimbalDefaults() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n";
+
+    const auto path = writeTempYaml("gimbal_defaults", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& gimbal = config.gimbal;
+    check(gimbal.enable == true, "gimbal enable default == true");
+    check(gimbal.send_speed == true, "gimbal send_speed default == true");
+    check(approx(gimbal.speed_filter_alpha, 0.3),
+          "gimbal speed_filter_alpha default == 0.3");
+}
+
+// Test 29: speed_filter_alpha outside [0,1] or non-finite must throw.
+void testInvalidGimbalAlpha() {
+    const char* alphas[] = {"1.5", "-0.1", ".nan"};
+    int index = 0;
+    for (const char* alpha : alphas) {
+        const std::string yaml =
+            std::string("traditional_detector:\n"
+                        "  min_cv_score: 0.55\n"
+                        "\n"
+                        "gimbal:\n"
+                        "  speed_filter_alpha: ") +
+            alpha + "\n";
+
+        const auto path =
+            writeTempYaml("gimbal_alpha_" + std::to_string(index), yaml);
+        bool threw = false;
+        try {
+            hnu25::anti_drone::loadAntiDroneConfig(path);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        std::filesystem::remove(path);
+
+        check(threw,
+              std::string("invalid gimbal speed_filter_alpha throws: ") +
+                  alpha);
+        ++index;
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -722,6 +837,11 @@ int main() {
         {"serial diagnostic empty device", testSerialDiagnosticEmptyDevice},
         {"invalid telemetry max failures", testInvalidTelemetryMaxFailures},
         {"serial diagnostic load", testSerialDiagnosticLoad},
+        {"serial load", testSerialLoad},
+        {"serial empty device", testSerialEmptyDevice},
+        {"gimbal override", testGimbalOverride},
+        {"gimbal defaults", testGimbalDefaults},
+        {"invalid gimbal alpha", testInvalidGimbalAlpha},
     };
 
     for (const auto& c : cases) {

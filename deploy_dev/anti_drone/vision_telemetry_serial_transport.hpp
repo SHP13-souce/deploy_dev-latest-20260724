@@ -18,7 +18,7 @@ struct VisionTelemetrySerialTransportConfig {
     bool flush_after_write = false;
 };
 
-// Serial transport for the fixed 50-byte VisionTelemetry v1 packet. It only
+// Serial transport for the fixed-size VisionTelemetry v1 packet. It only
 // validates packet size, manages the open/close lifecycle, delegates the actual
 // I/O to hnu25::SerialPort, and accumulates statistics. It performs no
 // retry/resend (a stale visual result has no value), and it expresses no

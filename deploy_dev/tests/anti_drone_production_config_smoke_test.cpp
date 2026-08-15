@@ -163,17 +163,28 @@ int main() {
         check(config.runtime.log_every_n_frames >= 1,
               "runtime log_every_n_frames sane (>= 1)");
 
-        // ── Test 11: telemetry transport defaults (LOOPBACK) ──────────────
+        // ── Test 11: telemetry transport defaults (SERIAL gimbal-follow) ──
         const auto& telemetry = config.telemetry;
         check(telemetry.mode ==
-                  hnu25::anti_drone::TelemetryTransportMode::LOOPBACK,
-              "telemetry mode defaults to LOOPBACK");
+                  hnu25::anti_drone::TelemetryTransportMode::SERIAL,
+              "telemetry mode defaults to SERIAL");
+        check(telemetry.device == "/dev/ttyUSB0",
+              "telemetry device defaults to /dev/ttyUSB0");
         check(telemetry.baud_rate == 115200,
               "telemetry baud_rate defaults to 115200");
         check(telemetry.max_consecutive_failures == 5,
               "telemetry max_consecutive_failures defaults to 5");
         check(telemetry.flush_after_write == false,
               "telemetry flush_after_write defaults to false");
+
+        // ── Test 12: gimbal config sanity ────────────────────────────────
+        const auto& gimbal = config.gimbal;
+        check(gimbal.enable == true, "gimbal enable sane (true)");
+        check(gimbal.send_speed == true, "gimbal send_speed sane (true)");
+        check(std::isfinite(gimbal.speed_filter_alpha) &&
+                  gimbal.speed_filter_alpha >= 0.0 &&
+                  gimbal.speed_filter_alpha <= 1.0,
+              "gimbal speed_filter_alpha sane");
 
         if (g_failures == 0) {
             std::cout << "All production config smoke checks passed.\n";

@@ -226,6 +226,13 @@ void validateRuntimeConfig(const AntiDroneRuntimeConfig& config) {
     }
 }
 
+void validateGimbalConfig(const GimbalConfig& config) {
+    if (!std::isfinite(config.speed_filter_alpha) ||
+        config.speed_filter_alpha < 0.0 || config.speed_filter_alpha > 1.0) {
+        fail("gimbal.speed_filter_alpha must be finite and within [0, 1]");
+    }
+}
+
 // The serial transport delegates baud-rate handling to hnu25::SerialPort,
 // which supports exactly these five rates. Rejecting anything else here fails
 // fast at startup instead of at first open.
@@ -244,9 +251,8 @@ void validateTelemetryConfig(const TelemetryTransportConfig& config) {
     if (config.max_consecutive_failures < 1) {
         fail("telemetry.max_consecutive_failures must be >= 1");
     }
-    if (config.mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC &&
-        config.device.empty()) {
-        fail("telemetry.device must be non-empty for SERIAL_DIAGNOSTIC mode");
+    if (telemetryTransportModeIsSerial(config.mode) && config.device.empty()) {
+        fail("telemetry.device must be non-empty for a serial transport mode");
     }
 }
 
@@ -258,8 +264,12 @@ TelemetryTransportMode telemetryTransportModeFromString(
     if (value == "serial_diagnostic") {
         return TelemetryTransportMode::SERIAL_DIAGNOSTIC;
     }
+    if (value == "serial") {
+        return TelemetryTransportMode::SERIAL;
+    }
     throw std::runtime_error(
-        "telemetry.mode must be \"loopback\" or \"serial_diagnostic\"");
+        "telemetry.mode must be \"loopback\", \"serial_diagnostic\", or "
+        "\"serial\"");
 }
 
 // Reads a root-level 3x3 matrix expressed as a row-major YAML sequence of
@@ -383,8 +393,15 @@ const char* telemetryTransportModeName(TelemetryTransportMode mode) noexcept {
             return "LOOPBACK";
         case TelemetryTransportMode::SERIAL_DIAGNOSTIC:
             return "SERIAL_DIAGNOSTIC";
+        case TelemetryTransportMode::SERIAL:
+            return "SERIAL";
     }
     return "UNKNOWN";
+}
+
+bool telemetryTransportModeIsSerial(TelemetryTransportMode mode) noexcept {
+    return mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC ||
+           mode == TelemetryTransportMode::SERIAL;
 }
 
 AntiDroneConfig loadAntiDroneConfig(
@@ -569,6 +586,20 @@ AntiDroneConfig loadAntiDroneConfig(
     }
 
     validateTelemetryConfig(config.telemetry);
+
+    // ── gimbal (optional) ─────────────────────────────────────────────────
+    if (const YAML::Node gim = root["gimbal"]) {
+        if (!gim.IsMap()) {
+            throw std::runtime_error("gimbal must be a mapping");
+        }
+        GimbalConfig& gimbal = config.gimbal;
+        gimbal.enable = gim["enable"].as<bool>(gimbal.enable);
+        gimbal.send_speed = gim["send_speed"].as<bool>(gimbal.send_speed);
+        gimbal.speed_filter_alpha =
+            gim["speed_filter_alpha"].as<double>(gimbal.speed_filter_alpha);
+    }
+
+    validateGimbalConfig(config.gimbal);
 
     return config;
 }

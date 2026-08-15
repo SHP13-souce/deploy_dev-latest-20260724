@@ -186,7 +186,8 @@ int main() {
               "A: crc_or_format_errors == 0");
         check(r.transport.packets_submitted == 1 &&
                   r.transport.packets_accepted == 1 &&
-                  r.transport.bytes_accepted == 50 &&
+                  r.transport.bytes_accepted ==
+                      hnu25::anti_drone::kVisionTelemetryPacketSize &&
                   r.transport.failures == 0,
               "A: transport stats correct");
     }
@@ -201,7 +202,8 @@ int main() {
               "B: crc_or_format_errors == 0");
         check(r.transport.packets_submitted == 3 &&
                   r.transport.packets_accepted == 3 &&
-                  r.transport.bytes_accepted == 150 &&
+                  r.transport.bytes_accepted ==
+                      3 * hnu25::anti_drone::kVisionTelemetryPacketSize &&
                   r.transport.failures == 0,
               "B: transport stats correct");
     }
@@ -218,7 +220,8 @@ int main() {
         check(r.parser.sequence_gaps == 0, "G: sequence_gaps == 0");
         check(r.transport.packets_submitted == 5 &&
                   r.transport.packets_accepted == 5 &&
-                  r.transport.bytes_accepted == 250 &&
+                  r.transport.bytes_accepted ==
+                      5 * hnu25::anti_drone::kVisionTelemetryPacketSize &&
                   r.transport.failures == 0,
               "G: transport stats correct");
     }

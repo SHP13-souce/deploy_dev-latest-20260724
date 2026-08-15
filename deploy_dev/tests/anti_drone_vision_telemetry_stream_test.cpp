@@ -24,7 +24,7 @@ using hnu25::anti_drone::VisionTelemetry;
 using hnu25::anti_drone::VisionTelemetryLoopbackTransport;
 using hnu25::anti_drone::VisionTelemetryStreamParser;
 
-// Builds a valid 50-byte packet carrying `sequence` (all other fields default:
+// Builds a valid packet carrying `sequence` (all other fields default:
 // vision_valid false, track LOST, zeros).
 std::vector<std::uint8_t> makePacket(std::uint32_t sequence) {
     VisionTelemetry t;
@@ -32,8 +32,8 @@ std::vector<std::uint8_t> makePacket(std::uint32_t sequence) {
     return hnu25::anti_drone::encodeVisionTelemetry(t);
 }
 
-// Builds a 50-byte frame with a correct magic/version/payload-length header but
-// an all-zero payload and CRC, guaranteed to fail decode and to contain no
+// Builds a fixed-size frame with a correct magic/version/payload-length header
+// but an all-zero payload and CRC, guaranteed to fail decode and to contain no
 // stray 0x41 0x44 marker.
 std::vector<std::uint8_t> corruptPacket() {
     std::vector<std::uint8_t> p(
@@ -41,7 +41,7 @@ std::vector<std::uint8_t> corruptPacket() {
     p[0] = hnu25::anti_drone::kVisionTelemetryMagic0;
     p[1] = hnu25::anti_drone::kVisionTelemetryMagic1;
     p[2] = hnu25::anti_drone::kVisionTelemetryVersion;
-    p[3] = 44;
+    p[3] = hnu25::anti_drone::kVisionTelemetryPayloadLength;
     return p;
 }
 
@@ -68,11 +68,12 @@ int main() {
         parser.push(packet.data(), 10);
         VisionTelemetry t;
         check(!parser.pop(t), "no packet after 10 bytes");
-        parser.push(packet.data() + 10, 15);
-        check(!parser.pop(t), "no packet after 25 bytes");
-        parser.push(packet.data() + 25, 25);
+        parser.push(packet.data() + 10, 20);
+        check(!parser.pop(t), "no packet after 30 bytes");
+        parser.push(packet.data() + 30,
+                    hnu25::anti_drone::kVisionTelemetryPacketSize - 30);
         const bool ok = parser.pop(t);
-        check(ok, "packet after full 50 bytes");
+        check(ok, "packet after full size");
         check(ok && t.sequence == 1, "split packet sequence correct");
     }
 
@@ -243,7 +244,9 @@ int main() {
         check(sent, "loopback send accepted");
         check(transport.stats().packets_submitted == 1, "submitted == 1");
         check(transport.stats().packets_accepted == 1, "accepted == 1");
-        check(transport.stats().bytes_accepted == 50, "bytes_accepted == 50");
+        check(transport.stats().bytes_accepted ==
+                  hnu25::anti_drone::kVisionTelemetryPacketSize,
+              "bytes_accepted == packet size");
         check(transport.stats().failures == 0, "no failures");
         VisionTelemetry received;
         const bool popped = transport.popReceived(received);

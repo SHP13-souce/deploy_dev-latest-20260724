@@ -15,6 +15,7 @@
 //   x_m / y_m / z_m     : meters
 //   timestamp_us        : microseconds
 //   prediction_horizon_s: seconds
+//   yaw_speed_rad_s / pitch_speed_rad_s : radians/second
 //
 // The wire format is a fixed-size little-endian packet with a CRC-16 trailer.
 // Every field is encoded explicitly (no struct reinterpret_cast / #pragma
@@ -26,8 +27,11 @@ constexpr std::uint8_t kVisionTelemetryVersion = 1;
 constexpr std::uint8_t kVisionTelemetryMagic0 = 0x41;  // 'A'
 constexpr std::uint8_t kVisionTelemetryMagic1 = 0x44;  // 'D'
 
-// header(4 bytes) + payload(44 bytes) + crc16(2 bytes).
-constexpr std::size_t kVisionTelemetryPacketSize = 50;
+// header(4 bytes) + payload(52 bytes) + crc16(2 bytes).
+constexpr std::size_t kVisionTelemetryPacketSize = 58;
+
+// payload byte count between the 4-byte header and the 2-byte CRC.
+constexpr std::size_t kVisionTelemetryPayloadLength = 52;
 
 struct VisionTelemetry {
     std::uint8_t version = 1;
@@ -57,12 +61,20 @@ struct VisionTelemetry {
 
     std::uint16_t detection_count = 0;
     std::uint16_t pnp_measurement_count = 0;
+
+    // Gimbal-following angular rate of the compensated pointing direction,
+    // radians/second. 0 on the first valid frame and whenever vision_valid is
+    // false. Filled by the application's cross-frame speed filter; it is NOT
+    // derived from a single-frame solution.
+    float yaw_speed_rad_s = 0.0F;
+    float pitch_speed_rad_s = 0.0F;
 };
 
 // Builds a telemetry from a per-frame processing result. yaw/pitch come from
 // DiagnosticFrameResult::predicted_yaw_rad / predicted_pitch_rad; position
 // comes from compensated_position_gimbal_m. No atan2 / compensation /
-// prediction math is reimplemented here.
+// prediction math is reimplemented here. The yaw/pitch speed fields are left
+// at 0: they are filled by the caller's cross-frame speed filter.
 VisionTelemetry makeVisionTelemetry(
     const DiagnosticFrameProcessorResult& frame_result,
     std::uint32_t sequence,
