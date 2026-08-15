@@ -122,3 +122,23 @@ target_link_libraries(
     opencv_core
     opencv_imgcodecs
 )
+
+add_executable(
+    anti_drone_app
+    app_main.cpp
+)
+
+target_include_directories(
+    anti_drone_app
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    anti_drone_app
+    PRIVATE
+    anti_drone
+    camera
+    opencv_core
+)

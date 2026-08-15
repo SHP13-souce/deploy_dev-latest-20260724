@@ -148,6 +148,21 @@ int main() {
                   std::string("DiagnosticPipeline constructed: ") + ctor_error);
         }
 
+        // ── Test 9: production camera runtime sanity ──────────────────────
+        const auto& camera = config.camera;
+        check(std::isfinite(camera.exposure) && camera.exposure > 0.0,
+              "camera exposure sane (> 0)");
+        check(std::isfinite(camera.frame_rate) && camera.frame_rate > 0.0,
+              "camera frame_rate sane (> 0)");
+        check(camera.frame_timeout_ms > 0,
+              "camera frame_timeout_ms sane (> 0)");
+        check(camera.max_consecutive_timeouts >= 1,
+              "camera max_consecutive_timeouts sane (>= 1)");
+
+        // ── Test 10: production runtime sanity ────────────────────────────
+        check(config.runtime.log_every_n_frames >= 1,
+              "runtime log_every_n_frames sane (>= 1)");
+
         if (g_failures == 0) {
             std::cout << "All production config smoke checks passed.\n";
             return 0;

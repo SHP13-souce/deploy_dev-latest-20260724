@@ -245,6 +245,14 @@ add_test(
         ${CMAKE_SOURCE_DIR}/config/anti_drone.yaml
 )
 
+add_test(
+    NAME anti_drone_app_check_smoke
+    COMMAND
+        anti_drone_app
+        ${CMAKE_SOURCE_DIR}/config/anti_drone.yaml
+        --check
+)
+
 add_executable(
     anti_drone_diagnostic_frame_processor_test
     anti_drone_diagnostic_frame_processor_test.cpp

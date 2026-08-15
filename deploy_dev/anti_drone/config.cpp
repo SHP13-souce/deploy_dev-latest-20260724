@@ -200,6 +200,32 @@ void validatePredictionConfig(const PredictionConfig& config) {
     }
 }
 
+// Camera runtime values are plain, conservative checks with no magic upper
+// bounds until real hardware behaviour is measured on site.
+void validateCameraConfig(const RuntimeCameraConfig& config) {
+    if (!std::isfinite(config.exposure) || !(config.exposure > 0.0)) {
+        fail("camera.exposure must be finite and > 0");
+    }
+    if (!std::isfinite(config.gain) || config.gain < 0.0) {
+        fail("camera.gain must be finite and >= 0");
+    }
+    if (!std::isfinite(config.frame_rate) || !(config.frame_rate > 0.0)) {
+        fail("camera.frame_rate must be finite and > 0");
+    }
+    if (config.frame_timeout_ms <= 0) {
+        fail("camera.frame_timeout_ms must be > 0");
+    }
+    if (config.max_consecutive_timeouts < 1) {
+        fail("camera.max_consecutive_timeouts must be >= 1");
+    }
+}
+
+void validateRuntimeConfig(const AntiDroneRuntimeConfig& config) {
+    if (config.log_every_n_frames < 1) {
+        fail("runtime.log_every_n_frames must be >= 1");
+    }
+}
+
 // Reads a root-level 3x3 matrix expressed as a row-major YAML sequence of
 // exactly 9 finite doubles. This mirrors the original project's Eigen::RowMajor
 // semantics: values[0..2] are row 0, values[3..5] row 1, values[6..8] row 2.
@@ -442,6 +468,38 @@ AntiDroneConfig loadAntiDroneConfig(
     }
 
     validateVisionCompensationConfig(config.vision_compensation);
+
+    // ── camera (optional) ─────────────────────────────────────────────────
+    if (const YAML::Node cam = root["camera"]) {
+        if (!cam.IsMap()) {
+            throw std::runtime_error("camera must be a mapping");
+        }
+        RuntimeCameraConfig& camera = config.camera;
+        camera.serial_number =
+            cam["serial_number"].as<std::string>(camera.serial_number);
+        camera.exposure = cam["exposure"].as<double>(camera.exposure);
+        camera.gain = cam["gain"].as<double>(camera.gain);
+        camera.frame_rate = cam["frame_rate"].as<double>(camera.frame_rate);
+        camera.frame_timeout_ms =
+            cam["frame_timeout_ms"].as<int>(camera.frame_timeout_ms);
+        camera.max_consecutive_timeouts =
+            cam["max_consecutive_timeouts"].as<int>(
+                camera.max_consecutive_timeouts);
+    }
+
+    validateCameraConfig(config.camera);
+
+    // ── runtime (optional) ────────────────────────────────────────────────
+    if (const YAML::Node rt = root["runtime"]) {
+        if (!rt.IsMap()) {
+            throw std::runtime_error("runtime must be a mapping");
+        }
+        config.runtime.log_every_n_frames =
+            rt["log_every_n_frames"].as<int>(
+                config.runtime.log_every_n_frames);
+    }
+
+    validateRuntimeConfig(config.runtime);
 
     return config;
 }

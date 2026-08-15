@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <string>
 
 namespace hnu25::anti_drone {
 
@@ -42,6 +43,29 @@ struct CalibrationConfig {
     cv::Matx33d R_gimbal2imubody = cv::Matx33d::eye();
 };
 
+// Camera runtime settings for the production application. This is a plain
+// value store only: the anti_drone library must NOT include
+// camera/hik_frame_source.hpp. app_main.cpp maps this onto a
+// hnu25::camera::HikConfig.
+struct RuntimeCameraConfig {
+    // Empty means "use the first camera the MVS SDK discovers".
+    std::string serial_number;
+
+    double exposure = 3000.0;
+    double gain = 0.0;
+    double frame_rate = 100.0;
+
+    int frame_timeout_ms = 1000;
+    int max_consecutive_timeouts = 5;
+};
+
+// Application behaviour for the production entry point.
+struct AntiDroneRuntimeConfig {
+    // Status lines are printed every N valid frames (and always on state
+    // changes). Must be >= 1.
+    int log_every_n_frames = 10;
+};
+
 // Aggregates all anti-drone configuration into a single loadable unit.
 struct AntiDroneConfig {
     TraditionalDetectorConfig traditional_detector;
@@ -57,6 +81,12 @@ struct AntiDroneConfig {
     std::optional<CalibrationConfig> calibration;
 
     VisionCompensationConfig vision_compensation;
+
+    // Production runtime camera + application behaviour. Loaded from the
+    // optional "camera:" / "runtime:" YAML sections; the defaults keep older
+    // config files compatible.
+    RuntimeCameraConfig camera;
+    AntiDroneRuntimeConfig runtime;
 };
 
 // Loads the full anti-drone configuration from a YAML file. The file must
