@@ -2,6 +2,9 @@
 #include "anti_drone/diagnostic_csv.hpp"
 #include "anti_drone/diagnostic_frame_processor.hpp"
 #include "anti_drone/vision_telemetry.hpp"
+#include "anti_drone/vision_telemetry_loopback.hpp"
+#include "anti_drone/vision_telemetry_stream.hpp"
+#include "anti_drone/vision_telemetry_transport.hpp"
 
 #include "camera/frame.hpp"
 #include "camera/hik_frame_source.hpp"
@@ -37,6 +40,7 @@
 //   5 consecutive frame-timeout limit reached
 //   6 unexpected exception
 //   7 Hik MVS support unavailable in this build
+//   8 loopback smoke failure (--check)
 
 namespace {
 
@@ -96,21 +100,26 @@ void printStartupSummary(
     }
     std::cout << '\n';
 
-    std::cout << "VisionTelemetry:\n";
-    std::cout << "  version: "
+    std::cout << "Vision telemetry transport:\n";
+    std::cout << "  mode: LOOPBACK\n";
+    std::cout << "  packet_size: "
+              << hnu25::anti_drone::kVisionTelemetryPacketSize << '\n';
+    std::cout << "  protocol_version: "
               << static_cast<int>(
                      hnu25::anti_drone::kVisionTelemetryVersion)
               << '\n';
-    std::cout << "  packet_size: "
-              << hnu25::anti_drone::kVisionTelemetryPacketSize << '\n';
+    std::cout << "  READY\n";
     std::cout << '\n';
 
-    std::cout << "Communication: DISABLED\n\n";
+    std::cout << "External serial output: DISABLED\n";
+    std::cout << "Loopback verification: ENABLED\n\n";
 }
 
-void printFrameStatus(std::uint64_t frame_index,
-                      std::uint64_t camera_frame_number,
-                      const hnu25::anti_drone::VisionTelemetry& telemetry) {
+void printFrameStatus(
+    std::uint64_t frame_index,
+    std::uint64_t camera_frame_number,
+    const hnu25::anti_drone::VisionTelemetry& telemetry,
+    const hnu25::anti_drone::VisionTelemetryTransportStats& transport_stats) {
     std::cout << "Frame " << frame_index << ":\n";
     std::cout << "  camera_frame_number: " << camera_frame_number << '\n';
     std::cout << "  detections: " << telemetry.detection_count << '\n';
@@ -131,6 +140,12 @@ void printFrameStatus(std::uint64_t frame_index,
     } else {
         std::cout << "  yaw/pitch: INVALID\n";
     }
+    std::cout << "  telemetry_packets_submitted: "
+              << transport_stats.packets_submitted << '\n';
+    std::cout << "  telemetry_packets_accepted: "
+              << transport_stats.packets_accepted << '\n';
+    std::cout << "  telemetry_transport_failures: "
+              << transport_stats.failures << '\n';
 }
 
 }  // namespace
@@ -179,6 +194,10 @@ int main(int argc, char** argv) {
 
         printStartupSummary(config_path, config);
 
+        // ── Loopback transport: verifies the runtime's packets can be
+        // re-parsed by the receiving side (no serial / hardware). ──────────
+        hnu25::anti_drone::VisionTelemetryLoopbackTransport transport;
+
         // ── --check mode: no camera, no frame loop ────────────────────────
         if (check_only) {
             std::cout << "Hik MVS build support: ";
@@ -187,9 +206,36 @@ int main(int argc, char** argv) {
 #else
             std::cout << "NO\n";
 #endif
+
+            // Internal loopback smoke: encode a minimal legal telemetry, send
+            // it through the loopback, and confirm the receiver re-parses it
+            // with the same sequence.
+            hnu25::anti_drone::VisionTelemetry sample;
+            sample.version = hnu25::anti_drone::kVisionTelemetryVersion;
+            sample.sequence = 1;
+            sample.timestamp_us = 1;
+            sample.vision_valid = false;
+
+            bool loopback_pass = false;
+            const auto sample_packet =
+                hnu25::anti_drone::encodeVisionTelemetry(sample);
+            if (transport.send(sample_packet)) {
+                hnu25::anti_drone::VisionTelemetry received;
+                if (transport.popReceived(received) &&
+                    received.sequence == 1) {
+                    loopback_pass = true;
+                }
+            }
+
+            if (loopback_pass) {
+                std::cout << "Vision telemetry loopback: PASS\n";
+            } else {
+                std::cout << "Vision telemetry loopback: FAIL\n";
+            }
+
             std::cout << "\nConfiguration and runtime construction check "
                          "passed.\n";
-            return 0;
+            return loopback_pass ? 0 : 8;
         }
 
 #if HNU25_HAS_MVS
@@ -266,12 +312,13 @@ int main(int argc, char** argv) {
                 hnu25::anti_drone::makeVisionTelemetry(
                     result, sequence, timestamp_us);
 
-            // Produce the fixed 50-byte packet. It is the module's final
-            // diagnostic output; nothing here transmits it (no serial /
-            // communication / control / fire semantics).
+            // Produce the fixed 50-byte packet, then feed it through the
+            // loopback transport to confirm the runtime's output can be
+            // re-parsed by the receiving side. The loopback touches no
+            // serial port or real hardware (no control / fire semantics).
             const std::vector<std::uint8_t> packet =
                 hnu25::anti_drone::encodeVisionTelemetry(telemetry);
-            (void)packet;
+            transport.send(packet);
 
             ++sequence;  // uint32_t rollover is acceptable.
             ++frame_index;
@@ -285,7 +332,8 @@ int main(int argc, char** argv) {
 
             if (state_changed || periodic) {
                 printFrameStatus(
-                    frame_index, frame.frame_number, telemetry);
+                    frame_index, frame.frame_number, telemetry,
+                    transport.stats());
             }
 
             previous_track_state = telemetry.track_state;

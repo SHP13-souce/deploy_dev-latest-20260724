@@ -9,6 +9,8 @@ add_library(anti_drone STATIC
     diagnostic_csv.cpp
     diagnostic_frame_processor.cpp
     vision_telemetry.cpp
+    vision_telemetry_stream.cpp
+    vision_telemetry_loopback.cpp
 )
 
 target_include_directories(anti_drone PUBLIC
