@@ -105,6 +105,12 @@ bool SerialPort::isOpen() const {
 #endif
 }
 
+void SerialPort::setWriteTimeoutMs(int timeout_ms) {
+    if (timeout_ms > 0) {
+        write_timeout_ms_ = timeout_ms;
+    }
+}
+
 bool SerialPort::write(const std::vector<uint8_t>& data) {
     return write(data.data(), data.size());
 }
@@ -121,12 +127,38 @@ bool SerialPort::write(const uint8_t* data, size_t len) {
         }
         if (written < 0 && errno == EINTR) continue;
         if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            struct pollfd pfd {fd_, POLLOUT, 0};
+            // Output buffer full: wait (bounded) for the fd to become
+            // writable again instead of blocking forever.
+            struct pollfd pfd;
+            pfd.fd = fd_;
+            pfd.events = POLLOUT;
+            pfd.revents = 0;
             int ready;
             do {
-                ready = ::poll(&pfd, 1, -1);
+                ready = ::poll(&pfd, 1, write_timeout_ms_);
             } while (ready < 0 && errno == EINTR);
-            if (ready > 0) continue;
+
+            if (ready == 0) {
+                std::cerr << "[Serial] write timed out after "
+                          << write_timeout_ms_ << " ms" << std::endl;
+                return false;
+            }
+            if (ready < 0) {
+                std::cerr << "[Serial] poll failed: " << std::strerror(errno)
+                          << std::endl;
+                return false;
+            }
+            if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                std::cerr << "[Serial] poll reported error/hangup/invalid fd"
+                          << std::endl;
+                return false;
+            }
+            if (pfd.revents & POLLOUT) {
+                continue;  // writable again; retry the remaining bytes.
+            }
+            std::cerr << "[Serial] poll returned no writable event"
+                      << std::endl;
+            return false;
         }
         std::cerr << "[Serial] write failed: " << std::strerror(errno) << std::endl;
         return false;

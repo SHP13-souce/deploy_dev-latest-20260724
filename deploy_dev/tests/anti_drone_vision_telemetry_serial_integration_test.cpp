@@ -282,6 +282,40 @@ int main() {
         check(!transport.isOpen(), "F: not open after failed open");
     }
 
+    // ── H: finite write timeout configured -> normal writes still work ───
+    {
+        Pty pty;
+        check(makePty(pty), "H: PTY created");
+        setNonBlocking(pty.master_fd);
+
+        hnu25::anti_drone::VisionTelemetrySerialTransportConfig cfg;
+        cfg.device = pty.slave_path;
+        cfg.baud_rate = 115200;
+        cfg.flush_after_write = false;
+        cfg.write_timeout_ms = 5;
+
+        hnu25::anti_drone::VisionTelemetrySerialTransport transport(cfg);
+        if (!transport.open()) {
+            check(false, "H: transport opened with write_timeout_ms");
+        } else {
+            const auto packet =
+                hnu25::anti_drone::encodeVisionTelemetry(makePacket(200));
+            check(transport.send(packet),
+                  "H: send succeeds with finite write timeout");
+
+            const std::vector<std::uint8_t> bytes = readAll(pty.master_fd);
+            hnu25::anti_drone::VisionTelemetryStreamParser parser;
+            parser.push(bytes);
+            hnu25::anti_drone::VisionTelemetry decoded;
+            check(parser.pop(decoded) && decoded.sequence == 200,
+                  "H: packet round-trips with finite write timeout");
+            transport.close();
+        }
+        if (pty.master_fd >= 0) {
+            ::close(pty.master_fd);
+        }
+    }
+
     if (g_failures == 0) {
         std::cout << "All serial transport integration checks passed.\n";
         return 0;

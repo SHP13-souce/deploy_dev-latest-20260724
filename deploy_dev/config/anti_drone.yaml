@@ -104,6 +104,7 @@ telemetry:
   mode: "serial"
   device: "/dev/ttyUSB0"
   baud_rate: 115200
+  write_timeout_ms: 20
   max_consecutive_failures: 5
   flush_after_write: false
 
@@ -149,3 +150,15 @@ gimbal:
 #    r20, r21, r22]
 #
 # max_reprojection_error_px: 5.0
+#
+# Runtime resolution consistency check (optional):
+#
+#   calibration_image_width: 0
+#   calibration_image_height: 0
+#
+# These two values should be set to the image resolution that was actually
+# used when the camera intrinsics were calibrated. 0 disables the runtime
+# resolution consistency check. When both are > 0, the production application
+# rejects a runtime image whose size does not match (it exits instead of
+# silently running a mis-calibrated pipeline).
+

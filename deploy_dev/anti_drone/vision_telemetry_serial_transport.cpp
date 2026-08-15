@@ -15,6 +15,7 @@ VisionTelemetrySerialTransport::~VisionTelemetrySerialTransport() {
 }
 
 bool VisionTelemetrySerialTransport::open() {
+    serial_.setWriteTimeoutMs(config_.write_timeout_ms);
     return serial_.open(config_.device, config_.baud_rate);
 }
 

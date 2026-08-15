@@ -805,6 +805,309 @@ void testInvalidGimbalAlpha() {
     }
 }
 
+// A minimal valid calibration body (four core keys; R_gimbal2imubody is now
+// optional and deliberately omitted).
+std::string baseCalibrationYaml() {
+    return
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "camera_matrix:\n"
+        "  [800, 0, 320,\n"
+        "   0, 800, 240,\n"
+        "   0, 0, 1]\n"
+        "\n"
+        "distort_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]\n"
+        "\n"
+        "R_camera2gimbal:\n"
+        "  [1, 0, 0,\n"
+        "   0, 1, 0,\n"
+        "   0, 0, 1]\n"
+        "\n"
+        "t_camera2gimbal: [0.0, 0.0, 0.0]\n";
+}
+
+// Builds a calibration YAML whose R_camera2gimbal is replaced by `r_block`
+// (the 3 rows of the YAML sequence), then reports whether loading threw.
+bool loadWithRcamera2gimbalThrows(const std::string& r_block) {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "camera_matrix:\n"
+        "  [800, 0, 320,\n"
+        "   0, 800, 240,\n"
+        "   0, 0, 1]\n"
+        "\n"
+        "distort_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]\n"
+        "\n"
+        "R_camera2gimbal:\n" +
+        r_block +
+        "\n"
+        "t_camera2gimbal: [0.0, 0.0, 0.0]\n";
+
+    const auto path = writeTempYaml("calib_rmat", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    return threw;
+}
+
+// Test 30: write_timeout_ms defaults to 20 when absent.
+void testWriteTimeoutDefault() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  mode: \"serial\"\n"
+        "  device: \"/dev/ttyUSB0\"\n";
+
+    const auto path = writeTempYaml("write_timeout_default", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.telemetry.write_timeout_ms == 20,
+          "write_timeout_ms defaults to 20");
+}
+
+// Test 31: write_timeout_ms override loads.
+void testWriteTimeoutOverride() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  write_timeout_ms: 35\n";
+
+    const auto path = writeTempYaml("write_timeout_override", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.telemetry.write_timeout_ms == 35,
+          "write_timeout_ms overrides to 35");
+}
+
+// Test 32: write_timeout_ms <= 0 must throw.
+void testInvalidWriteTimeout() {
+    const char* values[] = {"0", "-5"};
+    int index = 0;
+    for (const char* v : values) {
+        const std::string yaml =
+            std::string("traditional_detector:\n"
+                        "  min_cv_score: 0.55\n"
+                        "\n"
+                        "telemetry:\n"
+                        "  write_timeout_ms: ") +
+            v + "\n";
+
+        const auto path =
+            writeTempYaml("write_timeout_invalid_" + std::to_string(index),
+                          yaml);
+        bool threw = false;
+        try {
+            hnu25::anti_drone::loadAntiDroneConfig(path);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        std::filesystem::remove(path);
+
+        check(threw, std::string("write_timeout_ms <= 0 throws: ") + v);
+        ++index;
+    }
+}
+
+// Test 33: R_gimbal2imubody is optional; absent keeps identity.
+void testCalibrationWithoutGimbal2Imu() {
+    const std::string yaml = baseCalibrationYaml();
+    const auto path = writeTempYaml("calib_no_g2i", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.calibration.has_value(),
+          "calibration present without R_gimbal2imubody");
+    const auto& R = config.calibration->R_gimbal2imubody;
+    const bool is_eye =
+        approx(R(0, 0), 1.0) && approx(R(1, 1), 1.0) && approx(R(2, 2), 1.0) &&
+        approx(R(0, 1), 0.0) && approx(R(0, 2), 0.0) && approx(R(1, 0), 0.0) &&
+        approx(R(1, 2), 0.0) && approx(R(2, 0), 0.0) && approx(R(2, 1), 0.0);
+    check(is_eye, "R_gimbal2imubody defaults to identity when absent");
+}
+
+// Test 34: a core calibration set missing t_camera2gimbal must throw.
+void testCoreCalibrationPartial() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "camera_matrix:\n"
+        "  [800, 0, 320,\n"
+        "   0, 800, 240,\n"
+        "   0, 0, 1]\n"
+        "\n"
+        "distort_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]\n"
+        "\n"
+        "R_camera2gimbal:\n"
+        "  [1, 0, 0,\n"
+        "   0, 1, 0,\n"
+        "   0, 0, 1]\n";
+
+    const auto path = writeTempYaml("calib_core_partial", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "missing t_camera2gimbal (core set) throws");
+}
+
+// Test 35: a valid identity R_camera2gimbal loads.
+void testRotationIdentityValid() {
+    check(!loadWithRcamera2gimbalThrows(
+              "  [1, 0, 0,\n"
+              "   0, 1, 0,\n"
+              "   0, 0, 1]\n"),
+          "identity R_camera2gimbal is a valid rotation");
+}
+
+// Test 36: a valid 90deg rotation R_camera2gimbal loads.
+void testRotationValid() {
+    check(!loadWithRcamera2gimbalThrows(
+              "  [0, -1, 0,\n"
+              "   1,  0, 0,\n"
+              "   0,  0, 1]\n"),
+          "90deg-z R_camera2gimbal is a valid rotation");
+}
+
+// Test 37: a non-orthogonal matrix must throw.
+void testRotationNonOrthogonal() {
+    check(loadWithRcamera2gimbalThrows(
+              "  [1, 0, 0,\n"
+              "   0, 1, 0,\n"
+              "   0, 0, 2]\n"),
+          "non-orthogonal R_camera2gimbal throws");
+}
+
+// Test 38: a reflection (det = -1) matrix must throw.
+void testRotationReflection() {
+    check(loadWithRcamera2gimbalThrows(
+              "  [1, 0,  0,\n"
+              "   0, 1,  0,\n"
+              "   0, 0, -1]\n"),
+          "reflection (det == -1) R_camera2gimbal throws");
+}
+
+// Test 39: a NaN matrix must throw.
+void testRotationNan() {
+    check(loadWithRcamera2gimbalThrows(
+              "  [1, 0, 0,\n"
+              "   0, 1, 0,\n"
+              "   0, 0, .nan]\n"),
+          "NaN R_camera2gimbal throws");
+}
+
+// Test 40: an invalid R_gimbal2imubody (non-rotation) must throw.
+void testInvalidGimbal2ImuRotation() {
+    const std::string yaml =
+        baseCalibrationYaml() +
+        "\n"
+        "R_gimbal2imubody:\n"
+        "  [1, 0, 0,\n"
+        "   0, 1, 0,\n"
+        "   0, 0, 2]\n";
+
+    const auto path = writeTempYaml("calib_bad_g2i", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "non-rotation R_gimbal2imubody throws");
+}
+
+// Test 41: calibration resolution defaults to 0/0 (no check).
+void testCalibrationResolutionDefaults() {
+    const std::string yaml = baseCalibrationYaml();
+    const auto path = writeTempYaml("calib_res_default", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.calibration.has_value(), "calibration present");
+    check(config.calibration->calibration_image_width == 0 &&
+              config.calibration->calibration_image_height == 0,
+          "resolution defaults to 0/0");
+    check(hnu25::anti_drone::calibrationResolutionMatches(
+              *config.calibration, 640, 480),
+          "0/0 pins nothing: any runtime size matches");
+}
+
+// Test 42: a valid resolution loads and matches exactly.
+void testCalibrationResolutionValid() {
+    const std::string yaml =
+        baseCalibrationYaml() +
+        "\n"
+        "calibration_image_width: 1440\n"
+        "calibration_image_height: 1080\n";
+
+    const auto path = writeTempYaml("calib_res_valid", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.calibration->calibration_image_width == 1440 &&
+              config.calibration->calibration_image_height == 1080,
+          "resolution loaded as 1440x1080");
+    check(hnu25::anti_drone::calibrationResolutionMatches(
+              *config.calibration, 1440, 1080),
+          "1440x1080 runtime matches");
+    check(!hnu25::anti_drone::calibrationResolutionMatches(
+              *config.calibration, 720, 540),
+          "720x540 runtime does not match");
+}
+
+// Test 43: only width configured -> config error.
+void testCalibrationResolutionWidthOnly() {
+    const std::string yaml =
+        baseCalibrationYaml() +
+        "\n"
+        "calibration_image_width: 1440\n";
+
+    const auto path = writeTempYaml("calib_res_width_only", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "width-only resolution throws");
+}
+
+// Test 44: only height configured -> config error.
+void testCalibrationResolutionHeightOnly() {
+    const std::string yaml =
+        baseCalibrationYaml() +
+        "\n"
+        "calibration_image_height: 1080\n";
+
+    const auto path = writeTempYaml("calib_res_height_only", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "height-only resolution throws");
+}
+
 }  // namespace
 
 int main() {
@@ -842,6 +1145,21 @@ int main() {
         {"gimbal override", testGimbalOverride},
         {"gimbal defaults", testGimbalDefaults},
         {"invalid gimbal alpha", testInvalidGimbalAlpha},
+        {"write timeout default", testWriteTimeoutDefault},
+        {"write timeout override", testWriteTimeoutOverride},
+        {"invalid write timeout", testInvalidWriteTimeout},
+        {"calibration without gimbal2imu", testCalibrationWithoutGimbal2Imu},
+        {"core calibration partial", testCoreCalibrationPartial},
+        {"rotation identity valid", testRotationIdentityValid},
+        {"rotation valid", testRotationValid},
+        {"rotation non-orthogonal", testRotationNonOrthogonal},
+        {"rotation reflection", testRotationReflection},
+        {"rotation nan", testRotationNan},
+        {"invalid gimbal2imu rotation", testInvalidGimbal2ImuRotation},
+        {"calibration resolution defaults", testCalibrationResolutionDefaults},
+        {"calibration resolution valid", testCalibrationResolutionValid},
+        {"calibration resolution width only", testCalibrationResolutionWidthOnly},
+        {"calibration resolution height only", testCalibrationResolutionHeightOnly},
     };
 
     for (const auto& c : cases) {

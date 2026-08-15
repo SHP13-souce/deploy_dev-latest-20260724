@@ -41,6 +41,12 @@ struct VisionCompensationConfig {
 struct CalibrationConfig {
     PnpSolverConfig pnp;
     cv::Matx33d R_gimbal2imubody = cv::Matx33d::eye();
+
+    // Optional runtime resolution pinning. 0 means "unspecified / no check";
+    // when both are > 0, the runtime image size must match the calibration
+    // image size exactly.
+    int calibration_image_width = 0;
+    int calibration_image_height = 0;
 };
 
 // Camera runtime settings for the production application. This is a plain
@@ -108,6 +114,7 @@ struct TelemetryTransportConfig {
     TelemetryTransportMode mode = TelemetryTransportMode::LOOPBACK;
     std::string device;                  // serial device path (empty for LOOPBACK)
     int baud_rate = 115200;              // one of {9600,19200,38400,57600,115200}
+    int write_timeout_ms = 20;           // finite poll() timeout per write, > 0
     int max_consecutive_failures = 5;    // consecutive send failures stop the app
     bool flush_after_write = false;      // tcdrain after each accepted write
 };
@@ -150,6 +157,15 @@ struct AntiDroneConfig {
 // "vision_compensation:" mapping defaults to all-zero when absent. Invalid
 // values throw std::runtime_error.
 AntiDroneConfig loadAntiDroneConfig(const std::filesystem::path& path);
+
+// Returns true when the runtime image size is acceptable under the
+// calibration's optional resolution pinning. A calibration with width/height
+// both <= 0 pins nothing, so any size is accepted; otherwise both must match
+// exactly.
+bool calibrationResolutionMatches(
+    const CalibrationConfig& calibration,
+    int image_cols,
+    int image_rows);
 
 // Convenience wrapper that returns only the traditional detector portion.
 // Kept for backward compatibility (e.g. image_preview).

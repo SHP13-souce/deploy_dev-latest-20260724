@@ -1,6 +1,7 @@
 #include "anti_drone/config.hpp"
 #include "anti_drone/diagnostic_csv.hpp"
 #include "anti_drone/diagnostic_frame_processor.hpp"
+#include "anti_drone/gimbal_speed_filter.hpp"
 #include "anti_drone/vision_telemetry.hpp"
 #include "anti_drone/vision_telemetry_loopback.hpp"
 #include "anti_drone/vision_telemetry_stream.hpp"
@@ -52,6 +53,7 @@
 //   8 loopback smoke failure (--check)
 //   9 telemetry transport open failure
 //  10 telemetry consecutive send-failure limit reached
+//  11 calibration resolution mismatch at runtime
 
 namespace {
 
@@ -85,6 +87,7 @@ makeTelemetryTransport(
         serial.device = config.device;
         serial.baud_rate = config.baud_rate;
         serial.flush_after_write = config.flush_after_write;
+        serial.write_timeout_ms = config.write_timeout_ms;
         return std::make_unique<
             hnu25::anti_drone::VisionTelemetrySerialTransport>(
             std::move(serial));
@@ -371,19 +374,20 @@ int main(int argc, char** argv) {
         bool previous_vision_valid = false;
         bool have_previous = false;
 
-        // Gimbal-following angular-rate filter state. The rate is the filtered
-        // first difference of the compensated pointing direction across valid
-        // frames; it resets to 0 whenever the solution becomes invalid so a
+        // Gimbal-following angular-rate filter. The rate is the low-pass-
+        // filtered first difference of the compensated pointing direction
+        // across valid frames; the yaw difference is wrapped to [-pi, pi], and
+        // the estimate resets to 0 whenever the solution becomes invalid so a
         // stale rate never spans a target-loss gap.
-        bool have_prev_speed = false;
-        double prev_yaw_rad = 0.0;
-        double prev_pitch_rad = 0.0;
-        double filt_yaw_speed = 0.0;
-        double filt_pitch_speed = 0.0;
+        hnu25::anti_drone::GimbalSpeedFilter gimbal_speed_filter(
+            config.gimbal.speed_filter_alpha);
         std::chrono::steady_clock::time_point prev_captured_at{};
 
         int exit_code = 0;
         int consecutive_transport_failures = 0;
+
+        // One-time calibration resolution check on the first valid frame.
+        bool calibration_resolution_checked = false;
 
         while (!g_stop_requested.load(std::memory_order_relaxed)) {
             hnu25::camera::Frame frame;
@@ -407,6 +411,30 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            // ── Calibration resolution guard ─────────────────────────────
+            // When the calibration pins an image resolution, reject a runtime
+            // size mismatch on the first valid frame instead of silently
+            // running a mis-calibrated pipeline. No camera_matrix rescaling is
+            // attempted: a mismatch is a configuration error, not a fix-up.
+            if (!calibration_resolution_checked) {
+                calibration_resolution_checked = true;
+                if (config.calibration.has_value() &&
+                    !hnu25::anti_drone::calibrationResolutionMatches(
+                        *config.calibration,
+                        frame.image.cols,
+                        frame.image.rows)) {
+                    const auto& calib = *config.calibration;
+                    std::cerr << "Calibration resolution mismatch:\n"
+                              << "calibrated: "
+                              << calib.calibration_image_width << "x"
+                              << calib.calibration_image_height << '\n'
+                              << "runtime:    " << frame.image.cols
+                              << "x" << frame.image.rows << '\n';
+                    exit_code = 11;
+                    break;
+                }
+            }
+
             // ── Per-frame processing ──────────────────────────────────────
             const auto result =
                 processor->process(frame.image, frame.captured_at);
@@ -423,38 +451,17 @@ int main(int argc, char** argv) {
             // frame and whenever the solution is invalid.
             if (config.gimbal.enable && config.gimbal.send_speed &&
                 telemetry.vision_valid) {
-                if (have_prev_speed) {
-                    const double dt = std::chrono::duration<double>(
-                        frame.captured_at - prev_captured_at).count();
-                    if (dt > 0.0) {
-                        const double alpha = config.gimbal.speed_filter_alpha;
-                        const double raw_yaw =
-                            (static_cast<double>(telemetry.yaw_rad) -
-                             prev_yaw_rad) / dt;
-                        const double raw_pitch =
-                            (static_cast<double>(telemetry.pitch_rad) -
-                             prev_pitch_rad) / dt;
-                        filt_yaw_speed =
-                            (1.0 - alpha) * filt_yaw_speed + alpha * raw_yaw;
-                        filt_pitch_speed =
-                            (1.0 - alpha) * filt_pitch_speed + alpha * raw_pitch;
-                        if (std::isfinite(filt_yaw_speed) &&
-                            std::isfinite(filt_pitch_speed)) {
-                            telemetry.yaw_speed_rad_s =
-                                static_cast<float>(filt_yaw_speed);
-                            telemetry.pitch_speed_rad_s =
-                                static_cast<float>(filt_pitch_speed);
-                        }
-                    }
-                }
-                prev_yaw_rad = static_cast<double>(telemetry.yaw_rad);
-                prev_pitch_rad = static_cast<double>(telemetry.pitch_rad);
+                const double dt = std::chrono::duration<double>(
+                    frame.captured_at - prev_captured_at).count();
+                const auto speed = gimbal_speed_filter.update(
+                    static_cast<double>(telemetry.yaw_rad),
+                    static_cast<double>(telemetry.pitch_rad),
+                    dt);
                 prev_captured_at = frame.captured_at;
-                have_prev_speed = true;
+                telemetry.yaw_speed_rad_s = speed.yaw_rad_s;
+                telemetry.pitch_speed_rad_s = speed.pitch_rad_s;
             } else {
-                have_prev_speed = false;
-                filt_yaw_speed = 0.0;
-                filt_pitch_speed = 0.0;
+                gimbal_speed_filter.reset();
             }
 
             // Produce the fixed-size packet, then feed it through the

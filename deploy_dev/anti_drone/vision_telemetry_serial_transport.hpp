@@ -16,6 +16,7 @@ struct VisionTelemetrySerialTransportConfig {
     std::string device;
     int baud_rate = 115200;
     bool flush_after_write = false;
+    int write_timeout_ms = 20;  // bounded poll() timeout per serial write
 };
 
 // Serial transport for the fixed-size VisionTelemetry v1 packet. It only
