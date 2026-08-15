@@ -1,5 +1,6 @@
 #pragma once
 
+#include "anti_drone/config.hpp"
 #include "anti_drone/pnp_solver.hpp"
 #include "anti_drone/predictor.hpp"
 #include "anti_drone/tracker.hpp"
@@ -20,6 +21,12 @@ struct DiagnosticPipelineConfig {
     PredictionConfig prediction;
     VisionCompensationConfig compensation;
 };
+
+// Converts the already-loaded global anti-drone configuration into the subset
+// consumed by DiagnosticPipeline. It performs no re-validation and does not use
+// detector or calibration configuration.
+DiagnosticPipelineConfig makeDiagnosticPipelineConfig(
+    const AntiDroneConfig& config);
 
 // Per-frame diagnostic output. The raw and predicted positions stay untouched
 // by compensation; only compensated_position and the predicted pointing

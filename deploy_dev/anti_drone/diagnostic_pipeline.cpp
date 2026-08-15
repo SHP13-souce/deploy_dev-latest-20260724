@@ -5,6 +5,15 @@
 
 namespace hnu25::anti_drone {
 
+DiagnosticPipelineConfig makeDiagnosticPipelineConfig(
+    const AntiDroneConfig& config) {
+    DiagnosticPipelineConfig result;
+    result.tracker = config.tracker;
+    result.prediction = config.prediction;
+    result.compensation = config.vision_compensation;
+    return result;
+}
+
 DiagnosticPipeline::DiagnosticPipeline(DiagnosticPipelineConfig config)
     : config_(config), tracker_(config.tracker) {
     // The tracker validates its own knobs in its constructor. Validate the

@@ -358,6 +358,155 @@ void testValidPredictionInvalidSolution() {
     check(!r.solution_valid, "solution_valid == false");
 }
 
+// Test 9: the adapter maps every tracker / prediction / compensation field
+// exactly, without touching detector or calibration.
+void testExactConfigMapping() {
+    hnu25::anti_drone::AntiDroneConfig config;
+    config.tracker.min_detect_count = 4;
+    config.tracker.max_missed_count = 8;
+    config.tracker.max_dt_s = 0.12;
+    config.tracker.max_association_distance_m = 0.55;
+    config.tracker.position_gain = 0.75;
+    config.tracker.velocity_gain = 0.30;
+    config.prediction.horizon_s = 0.09;
+    config.vision_compensation.yaw_offset_deg = 1.5;
+    config.vision_compensation.pitch_offset_deg = -0.8;
+    config.vision_compensation.x_offset_m = 0.01;
+    config.vision_compensation.y_offset_m = -0.02;
+    config.vision_compensation.z_offset_m = 0.03;
+
+    const auto pipeline_config =
+        hnu25::anti_drone::makeDiagnosticPipelineConfig(config);
+
+    const auto& tracker = pipeline_config.tracker;
+    check(tracker.min_detect_count == 4, "min_detect_count == 4");
+    check(tracker.max_missed_count == 8, "max_missed_count == 8");
+    check(approx(tracker.max_dt_s, 0.12), "max_dt_s == 0.12");
+    check(approx(tracker.max_association_distance_m, 0.55),
+          "max_association_distance_m == 0.55");
+    check(approx(tracker.position_gain, 0.75), "position_gain == 0.75");
+    check(approx(tracker.velocity_gain, 0.30), "velocity_gain == 0.30");
+
+    check(approx(pipeline_config.prediction.horizon_s, 0.09),
+          "horizon_s == 0.09");
+
+    const auto& comp = pipeline_config.compensation;
+    check(approx(comp.yaw_offset_deg, 1.5), "yaw_offset_deg == 1.5");
+    check(approx(comp.pitch_offset_deg, -0.8), "pitch_offset_deg == -0.8");
+    check(approx(comp.x_offset_m, 0.01), "x_offset_m == 0.01");
+    check(approx(comp.y_offset_m, -0.02), "y_offset_m == -0.02");
+    check(approx(comp.z_offset_m, 0.03), "z_offset_m == 0.03");
+}
+
+// Test 10: a default AntiDroneConfig maps to the current struct defaults.
+void testDefaultMapping() {
+    hnu25::anti_drone::AntiDroneConfig config;
+
+    const auto pipeline_config =
+        hnu25::anti_drone::makeDiagnosticPipelineConfig(config);
+
+    const auto& tracker = pipeline_config.tracker;
+    check(tracker.min_detect_count == 2, "min_detect_count default == 2");
+    check(tracker.max_missed_count == 5, "max_missed_count default == 5");
+    check(approx(tracker.max_dt_s, 0.25), "max_dt_s default == 0.25");
+    check(approx(tracker.max_association_distance_m, 1.0),
+          "max_association_distance_m default == 1.0");
+    check(approx(tracker.position_gain, 1.0), "position_gain default == 1.0");
+    check(approx(tracker.velocity_gain, 1.0), "velocity_gain default == 1.0");
+    check(pipeline_config.prediction.horizon_s == 0.0,
+          "horizon_s default == 0.0");
+
+    const auto& comp = pipeline_config.compensation;
+    check(comp.yaw_offset_deg == 0.0, "yaw default == 0");
+    check(comp.pitch_offset_deg == 0.0, "pitch default == 0");
+    check(comp.x_offset_m == 0.0, "x default == 0");
+    check(comp.y_offset_m == 0.0, "y default == 0");
+    check(comp.z_offset_m == 0.0, "z default == 0");
+}
+
+// Test 11: the adapter is a read-only pure conversion and never mutates the
+// source config.
+void testSourceConfigUnchanged() {
+    hnu25::anti_drone::AntiDroneConfig config;
+    config.tracker.min_detect_count = 4;
+    config.tracker.max_missed_count = 8;
+    config.tracker.max_dt_s = 0.12;
+    config.tracker.max_association_distance_m = 0.55;
+    config.tracker.position_gain = 0.75;
+    config.tracker.velocity_gain = 0.30;
+    config.prediction.horizon_s = 0.09;
+    config.vision_compensation.yaw_offset_deg = 1.5;
+    config.vision_compensation.pitch_offset_deg = -0.8;
+    config.vision_compensation.x_offset_m = 0.01;
+    config.vision_compensation.y_offset_m = -0.02;
+    config.vision_compensation.z_offset_m = 0.03;
+
+    const auto tracker_before = config.tracker;
+    const auto prediction_before = config.prediction;
+    const auto compensation_before = config.vision_compensation;
+
+    hnu25::anti_drone::makeDiagnosticPipelineConfig(config);
+
+    check(config.tracker.min_detect_count == tracker_before.min_detect_count,
+          "tracker.min_detect_count unchanged");
+    check(config.tracker.max_missed_count == tracker_before.max_missed_count,
+          "tracker.max_missed_count unchanged");
+    check(approx(config.tracker.max_dt_s, tracker_before.max_dt_s),
+          "tracker.max_dt_s unchanged");
+    check(approx(config.tracker.max_association_distance_m,
+                 tracker_before.max_association_distance_m),
+          "tracker.max_association_distance_m unchanged");
+    check(approx(config.tracker.position_gain, tracker_before.position_gain),
+          "tracker.position_gain unchanged");
+    check(approx(config.tracker.velocity_gain, tracker_before.velocity_gain),
+          "tracker.velocity_gain unchanged");
+    check(approx(config.prediction.horizon_s, prediction_before.horizon_s),
+          "prediction.horizon_s unchanged");
+    check(approx(config.vision_compensation.yaw_offset_deg,
+                 compensation_before.yaw_offset_deg),
+          "compensation.yaw_offset_deg unchanged");
+    check(approx(config.vision_compensation.pitch_offset_deg,
+                 compensation_before.pitch_offset_deg),
+          "compensation.pitch_offset_deg unchanged");
+    check(approx(config.vision_compensation.x_offset_m,
+                 compensation_before.x_offset_m),
+          "compensation.x_offset_m unchanged");
+    check(approx(config.vision_compensation.y_offset_m,
+                 compensation_before.y_offset_m),
+          "compensation.y_offset_m unchanged");
+    check(approx(config.vision_compensation.z_offset_m,
+                 compensation_before.z_offset_m),
+          "compensation.z_offset_m unchanged");
+}
+
+// Test 12: the adapter result constructs a working DiagnosticPipeline.
+void testAdapterConstructsPipeline() {
+    hnu25::anti_drone::AntiDroneConfig config;
+    config.tracker.min_detect_count = 2;
+    config.tracker.max_missed_count = 5;
+    config.tracker.max_dt_s = 0.2;
+    config.tracker.max_association_distance_m = 0.8;
+    config.tracker.position_gain = 1.0;
+    config.tracker.velocity_gain = 0.2;
+    config.prediction.horizon_s = 0.05;
+    // vision_compensation stays all-zero.
+
+    const auto pipeline_config =
+        hnu25::anti_drone::makeDiagnosticPipelineConfig(config);
+    hnu25::anti_drone::DiagnosticPipeline pipeline(pipeline_config);
+
+    const auto t0 = Clock::now();
+    pipeline.update({measurement(4.0, 0.0, 0.5)}, t0);
+    const auto r = pipeline.update(
+        {measurement(4.0, 0.0, 0.5)}, t0 + std::chrono::milliseconds(20));
+
+    check(r.track_state == hnu25::anti_drone::TrackState::TRACKING,
+          "track_state == TRACKING");
+    check(r.prediction_valid, "prediction_valid == true");
+    check(r.solution_valid, "solution_valid == true");
+    check(approx(r.prediction_horizon_s, 0.05), "horizon_s ~= 0.05");
+}
+
 }  // namespace
 
 int main() {
@@ -374,6 +523,10 @@ int main() {
         {"reset pipeline", testResetPipeline},
         {"invalid config", testInvalidConfig},
         {"valid prediction invalid solution", testValidPredictionInvalidSolution},
+        {"exact config mapping", testExactConfigMapping},
+        {"default mapping", testDefaultMapping},
+        {"source config unchanged", testSourceConfigUnchanged},
+        {"adapter constructs pipeline", testAdapterConstructsPipeline},
     };
 
     for (const auto& c : cases) {
