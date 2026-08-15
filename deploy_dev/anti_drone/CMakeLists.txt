@@ -5,6 +5,7 @@ add_library(anti_drone STATIC
     vision_solution.cpp
     tracker.cpp
     predictor.cpp
+    diagnostic_pipeline.cpp
 )
 
 target_include_directories(anti_drone PUBLIC
