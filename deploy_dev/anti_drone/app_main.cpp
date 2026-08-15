@@ -1,0 +1,463 @@
+#include "anti_drone/config.hpp"
+#include "anti_drone/diagnostic_csv.hpp"
+#include "anti_drone/diagnostic_frame_processor.hpp"
+#include "anti_drone/vision_telemetry.hpp"
+#include "anti_drone/vision_telemetry_loopback.hpp"
+#include "anti_drone/vision_telemetry_stream.hpp"
+#include "anti_drone/vision_telemetry_transport.hpp"
+#if HNU25_HAS_SERIAL_TELEMETRY
+#include "anti_drone/vision_telemetry_serial_transport.hpp"
+#endif
+
+#include "camera/frame.hpp"
+#include "camera/hik_frame_source.hpp"
+
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <cstdint>
+#include <exception>
+#include <iomanip>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+// Formal Anti-Drone vision application entry point.
+//
+// Data chain (normal mode):
+//   HikFrameSource -> Frame -> DiagnosticFrameProcessor::process()
+//     -> DiagnosticFrameProcessorResult -> makeVisionTelemetry()
+//     -> VisionTelemetry -> encodeVisionTelemetry() -> 50-byte packet.
+//
+// The 50-byte packet is produced as the module's final diagnostic output, but
+// this entry point deliberately does NOT open a serial port, connect to the
+// communication module, or emit any gimbal / fire / control command. It reuses
+// the existing modules only and reimplements none of the math.
+//
+// Return codes:
+//   1 usage error
+//   2 config load failure
+//   3 diagnostic frame processor construction failure
+//   4 camera start failure
+//   5 consecutive frame-timeout limit reached
+//   6 unexpected exception
+//   7 Hik MVS support unavailable in this build
+//   8 loopback smoke failure (--check)
+//   9 telemetry transport open failure
+//  10 telemetry consecutive send-failure limit reached
+
+namespace {
+
+// Graceful-shutdown flag. The signal handler below only sets this flag; the
+// frame loop observes it.
+std::atomic<bool> g_stop_requested{false};
+
+void handleSignal(int) {
+    g_stop_requested.store(true, std::memory_order_relaxed);
+}
+
+// steady_clock timestamps are monotonic (no wall clock); VisionTelemetry
+// carries microseconds since the clock epoch.
+std::uint64_t toMicroseconds(std::chrono::steady_clock::time_point tp) {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            tp.time_since_epoch())
+            .count());
+}
+
+// Builds the configured transport. SERIAL_DIAGNOSTIC is only available when
+// the build links the serial transport (HNU25_HAS_SERIAL_TELEMETRY); otherwise
+// requesting it is a configuration error surfaced here as a throw.
+std::unique_ptr<hnu25::anti_drone::VisionTelemetryTransport>
+makeTelemetryTransport(
+    const hnu25::anti_drone::TelemetryTransportConfig& config) {
+    using hnu25::anti_drone::TelemetryTransportMode;
+    if (config.mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+#if HNU25_HAS_SERIAL_TELEMETRY
+        hnu25::anti_drone::VisionTelemetrySerialTransportConfig serial;
+        serial.device = config.device;
+        serial.baud_rate = config.baud_rate;
+        serial.flush_after_write = config.flush_after_write;
+        return std::make_unique<
+            hnu25::anti_drone::VisionTelemetrySerialTransport>(
+            std::move(serial));
+#else
+        throw std::runtime_error(
+            "SERIAL_DIAGNOSTIC telemetry transport is not available "
+            "in this build");
+#endif
+    }
+    return std::make_unique<
+        hnu25::anti_drone::VisionTelemetryLoopbackTransport>();
+}
+
+void printStartupSummary(
+    const std::string& config_path,
+    const hnu25::anti_drone::AntiDroneConfig& config) {
+    std::cout << "=== Anti-Drone Vision Application ===\n\n";
+
+    std::cout << "Config:\n  " << config_path << "\n\n";
+
+    std::cout << "Detector:\n  READY\n\n";
+
+    std::cout << "Camera:\n";
+    std::cout << "  backend: Hik MVS\n";
+    std::cout << "  serial_number: "
+              << (config.camera.serial_number.empty()
+                      ? "(auto)"
+                      : config.camera.serial_number)
+              << '\n';
+    std::cout << "  exposure: " << config.camera.exposure << '\n';
+    std::cout << "  gain: " << config.camera.gain << '\n';
+    std::cout << "  frame_rate: " << config.camera.frame_rate << '\n';
+    std::cout << "  frame_timeout_ms: " << config.camera.frame_timeout_ms
+              << '\n';
+    std::cout << "  max_consecutive_timeouts: "
+              << config.camera.max_consecutive_timeouts << '\n';
+    std::cout << '\n';
+
+    std::cout << "Calibration: ";
+    if (config.calibration.has_value()) {
+        std::cout << "CONFIGURED\n";
+        std::cout << "  fx: "
+                  << config.calibration->pnp.camera_matrix(0, 0) << '\n';
+        std::cout << "  fy: "
+                  << config.calibration->pnp.camera_matrix(1, 1) << '\n';
+        std::cout << "3D diagnostic solution: ENABLED\n";
+    } else {
+        std::cout << "NOT CONFIGURED\n";
+        std::cout << "3D diagnostic solution: DISABLED\n";
+    }
+    std::cout << '\n';
+
+    const bool serial_diagnostic =
+        config.telemetry.mode ==
+        hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC;
+
+    std::cout << "Vision telemetry transport:\n";
+    std::cout << "  mode: "
+              << hnu25::anti_drone::telemetryTransportModeName(
+                     config.telemetry.mode)
+              << '\n';
+    if (serial_diagnostic) {
+        std::cout << "  device: " << config.telemetry.device << '\n';
+        std::cout << "  baud_rate: " << config.telemetry.baud_rate << '\n';
+    }
+    std::cout << "  packet_size: "
+              << hnu25::anti_drone::kVisionTelemetryPacketSize << '\n';
+    std::cout << "  protocol_version: "
+              << static_cast<int>(
+                     hnu25::anti_drone::kVisionTelemetryVersion)
+              << '\n';
+    std::cout << "  READY\n";
+    std::cout << '\n';
+
+    std::cout << "External serial output: "
+              << (serial_diagnostic ? "DIAGNOSTIC" : "DISABLED") << '\n';
+    std::cout << "Loopback verification: "
+              << (serial_diagnostic ? "startup check only" : "ENABLED")
+              << "\n\n";
+}
+
+void printFrameStatus(
+    std::uint64_t frame_index,
+    std::uint64_t camera_frame_number,
+    const hnu25::anti_drone::VisionTelemetry& telemetry,
+    const hnu25::anti_drone::VisionTelemetryTransportStats& transport_stats) {
+    std::cout << "Frame " << frame_index << ":\n";
+    std::cout << "  camera_frame_number: " << camera_frame_number << '\n';
+    std::cout << "  detections: " << telemetry.detection_count << '\n';
+    std::cout << "  pnp_measurements: " << telemetry.pnp_measurement_count
+              << '\n';
+    std::cout << "  track_state: "
+              << hnu25::anti_drone::trackStateName(telemetry.track_state)
+              << '\n';
+    std::cout << "  vision_valid: " << std::boolalpha
+              << telemetry.vision_valid << '\n';
+    if (telemetry.vision_valid) {
+        std::cout << std::fixed << std::setprecision(4);
+        std::cout << "  yaw_rad: " << telemetry.yaw_rad << '\n';
+        std::cout << "  pitch_rad: " << telemetry.pitch_rad << '\n';
+        std::cout << "  x_m: " << telemetry.x_m << '\n';
+        std::cout << "  y_m: " << telemetry.y_m << '\n';
+        std::cout << "  z_m: " << telemetry.z_m << '\n';
+    } else {
+        std::cout << "  yaw/pitch: INVALID\n";
+    }
+    std::cout << "  telemetry_packets_submitted: "
+              << transport_stats.packets_submitted << '\n';
+    std::cout << "  telemetry_packets_accepted: "
+              << transport_stats.packets_accepted << '\n';
+    std::cout << "  telemetry_bytes_accepted: "
+              << transport_stats.bytes_accepted << '\n';
+    std::cout << "  telemetry_transport_failures: "
+              << transport_stats.failures << '\n';
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // ── CLI parsing ────────────────────────────────────────────────────────
+    bool check_only = false;
+    std::string config_path;
+    if (argc == 2) {
+        config_path = argv[1];
+    } else if (argc == 3 && std::string(argv[2]) == "--check") {
+        config_path = argv[1];
+        check_only = true;
+    } else {
+        std::cout << "Usage: anti_drone_app <config_yaml> [--check]\n";
+        return 1;
+    }
+
+    // ── Graceful shutdown on SIGINT / SIGTERM ─────────────────────────────
+    std::signal(SIGINT, handleSignal);
+    std::signal(SIGTERM, handleSignal);
+
+    try {
+        // ── Load config through the production API ────────────────────────
+        hnu25::anti_drone::AntiDroneConfig config;
+        try {
+            config = hnu25::anti_drone::loadAntiDroneConfig(config_path);
+        } catch (const std::exception& error) {
+            std::cerr << "Failed to load anti-drone config:\n"
+                      << config_path << '\n'
+                      << error.what() << '\n';
+            return 2;
+        }
+
+        // ── Construct the reusable per-frame core ─────────────────────────
+        // DiagnosticFrameProcessor is not default-constructible, so it is
+        // constructed in place here and owned for the lifetime of main.
+        std::optional<hnu25::anti_drone::DiagnosticFrameProcessor> processor;
+        try {
+            processor.emplace(config);
+        } catch (const std::exception& error) {
+            std::cerr << "Failed to construct diagnostic frame processor: "
+                      << error.what() << '\n';
+            return 3;
+        }
+
+        printStartupSummary(config_path, config);
+
+        // ── --check mode: no camera, no frame loop, no serial / /dev/* ─────
+        if (check_only) {
+            std::cout << "Configured telemetry mode: "
+                      << hnu25::anti_drone::telemetryTransportModeName(
+                             config.telemetry.mode)
+                      << '\n';
+            if (config.telemetry.mode ==
+                hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+                std::cout << "  device: " << config.telemetry.device << '\n';
+                std::cout << "  baud_rate: " << config.telemetry.baud_rate
+                          << '\n';
+            }
+            std::cout << "External serial open: SKIPPED (--check)\n";
+
+            std::cout << "Hik MVS build support: ";
+#if HNU25_HAS_MVS
+            std::cout << "YES\n";
+#else
+            std::cout << "NO\n";
+#endif
+
+            // Internal loopback smoke: encode a minimal legal telemetry, send
+            // it through the loopback, and confirm the receiver re-parses it
+            // with the same sequence. Always uses the in-memory loopback (no
+            // serial / /dev/*) regardless of the configured mode.
+            hnu25::anti_drone::VisionTelemetryLoopbackTransport loopback;
+            hnu25::anti_drone::VisionTelemetry sample;
+            sample.version = hnu25::anti_drone::kVisionTelemetryVersion;
+            sample.sequence = 1;
+            sample.timestamp_us = 1;
+            sample.vision_valid = false;
+
+            bool loopback_pass = false;
+            const auto sample_packet =
+                hnu25::anti_drone::encodeVisionTelemetry(sample);
+            if (loopback.send(sample_packet)) {
+                hnu25::anti_drone::VisionTelemetry received;
+                if (loopback.popReceived(received) &&
+                    received.sequence == 1) {
+                    loopback_pass = true;
+                }
+            }
+
+            if (loopback_pass) {
+                std::cout << "Vision telemetry loopback: PASS\n";
+            } else {
+                std::cout << "Vision telemetry loopback: FAIL\n";
+            }
+
+            std::cout << "\nConfiguration and runtime construction check "
+                         "passed.\n";
+            return loopback_pass ? 0 : 8;
+        }
+
+        // ── Runtime transport: LOOPBACK or SERIAL_DIAGNOSTIC ──────────────
+        auto transport = makeTelemetryTransport(config.telemetry);
+
+#if HNU25_HAS_SERIAL_TELEMETRY
+        // SERIAL_DIAGNOSTIC must open before the frame loop; an open failure
+        // is a startup error, not a silent mid-loop failure.
+        if (config.telemetry.mode ==
+            hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+            auto* serial_transport =
+                dynamic_cast<
+                    hnu25::anti_drone::VisionTelemetrySerialTransport*>(
+                        transport.get());
+            if (serial_transport == nullptr || !serial_transport->open()) {
+                std::cerr << "Failed to open telemetry serial device '"
+                          << config.telemetry.device << "'\n";
+                return 9;
+            }
+            std::cout << "Telemetry serial transport opened.\n";
+        }
+#endif
+
+#if HNU25_HAS_MVS
+        // ── Map RuntimeCameraConfig onto the camera module ────────────────
+        // This mapping lives only here: the anti_drone library does not
+        // include camera/hik_frame_source.hpp.
+        hnu25::camera::HikConfig camera_config;
+        camera_config.serial_number = config.camera.serial_number;
+        camera_config.exposure = config.camera.exposure;
+        camera_config.gain = config.camera.gain;
+        camera_config.frame_rate = config.camera.frame_rate;
+
+        std::cout << "Starting Hik camera...\n";
+
+        hnu25::camera::HikFrameSource source(camera_config);
+        try {
+            source.start();
+        } catch (const std::exception& error) {
+            std::cerr << "Failed to start Hik camera:\n"
+                      << error.what() << '\n';
+            return 4;
+        }
+        std::cout << "Camera started.\n";
+        std::cout << "Vision frame loop started.\n";
+
+        const int frame_timeout_ms = config.camera.frame_timeout_ms;
+        const int max_consecutive_timeouts =
+            config.camera.max_consecutive_timeouts;
+        const std::uint64_t log_every_n_frames =
+            static_cast<std::uint64_t>(config.runtime.log_every_n_frames);
+
+        std::uint32_t sequence = 0;
+        std::uint64_t frame_index = 0;
+        int consecutive_timeouts = 0;
+
+        // State-change logging baseline.
+        hnu25::anti_drone::TrackState previous_track_state =
+            hnu25::anti_drone::TrackState::LOST;
+        bool previous_vision_valid = false;
+        bool have_previous = false;
+
+        int exit_code = 0;
+        int consecutive_transport_failures = 0;
+
+        while (!g_stop_requested.load(std::memory_order_relaxed)) {
+            hnu25::camera::Frame frame;
+            const bool received = source.waitForFrame(
+                frame, std::chrono::milliseconds(frame_timeout_ms));
+            if (!received) {
+                std::cout << "Frame timeout (" << frame_timeout_ms
+                          << " ms)\n";
+                if (++consecutive_timeouts >= max_consecutive_timeouts) {
+                    std::cerr << max_consecutive_timeouts
+                              << " consecutive frame timeouts; stopping.\n";
+                    exit_code = 5;
+                    break;
+                }
+                continue;
+            }
+            consecutive_timeouts = 0;
+
+            if (frame.image.empty()) {
+                std::cerr << "Frame empty (warning); skipping.\n";
+                continue;
+            }
+
+            // ── Per-frame processing ──────────────────────────────────────
+            const auto result =
+                processor->process(frame.image, frame.captured_at);
+
+            const std::uint64_t timestamp_us =
+                toMicroseconds(frame.captured_at);
+
+            const auto telemetry =
+                hnu25::anti_drone::makeVisionTelemetry(
+                    result, sequence, timestamp_us);
+
+            // Produce the fixed 50-byte packet, then feed it through the
+            // configured transport (loopback or diagnostic serial). The
+            // transport expresses only "send VisionTelemetry bytes" — no
+            // control / fire / gimbal semantics.
+            const std::vector<std::uint8_t> packet =
+                hnu25::anti_drone::encodeVisionTelemetry(telemetry);
+            if (transport->send(packet)) {
+                consecutive_transport_failures = 0;
+            } else if (++consecutive_transport_failures >=
+                       config.telemetry.max_consecutive_failures) {
+                std::cerr << "Telemetry transport failed "
+                          << consecutive_transport_failures
+                          << " consecutive times; stopping.\n";
+                exit_code = 10;
+                break;
+            }
+
+            ++sequence;  // uint32_t rollover is acceptable.
+            ++frame_index;
+
+            const bool state_changed =
+                !have_previous ||
+                telemetry.track_state != previous_track_state ||
+                telemetry.vision_valid != previous_vision_valid;
+            const bool periodic =
+                (frame_index % log_every_n_frames) == 0;
+
+            if (state_changed || periodic) {
+                printFrameStatus(
+                    frame_index, frame.frame_number, telemetry,
+                    transport->stats());
+            }
+
+            previous_track_state = telemetry.track_state;
+            previous_vision_valid = telemetry.vision_valid;
+            have_previous = true;
+        }
+
+        source.stop();
+        std::cout << "Vision frame loop stopped.\n";
+        std::cout << "Camera stopped.\n";
+
+#if HNU25_HAS_SERIAL_TELEMETRY
+        if (config.telemetry.mode ==
+            hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+            auto* serial_transport =
+                dynamic_cast<
+                    hnu25::anti_drone::VisionTelemetrySerialTransport*>(
+                        transport.get());
+            if (serial_transport != nullptr) {
+                serial_transport->close();
+            }
+        }
+#endif
+
+        std::cout << "Anti-Drone Vision Application exited cleanly.\n";
+        return exit_code;
+#else
+        std::cerr << "Hik MVS support is not available in this build.\n";
+        return 7;
+#endif
+    } catch (const std::exception& error) {
+        std::cerr << "Anti-Drone Vision Application failed: " << error.what()
+                  << '\n';
+        return 6;
+    }
+}

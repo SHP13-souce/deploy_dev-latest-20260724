@@ -1,0 +1,138 @@
+traditional_detector:
+  white_saturation_max: 80
+  white_value_min: 150
+
+  red_hue_low_1: 0
+  red_hue_high_1: 15
+  red_hue_low_2: 165
+  red_hue_high_2: 179
+  red_saturation_min: 80
+  red_value_min: 60
+
+  min_candidate_area_ratio: 0.0001
+  max_candidate_area_ratio: 0.85
+
+  min_aspect_ratio: 0.45
+  max_aspect_ratio: 2.20
+
+  min_rectangularity: 0.55
+  polygon_epsilon_ratio: 0.03
+
+  min_red_area_ratio: 0.003
+  max_bullseye_offset_ratio: 0.25
+
+  morphology_kernel_size: 3
+  morphology_open_iterations: 1
+  morphology_close_iterations: 2
+
+  geometry_weight: 0.50
+  color_weight: 0.50
+  min_cv_score: 0.55
+
+  nms_iou_threshold: 0.40
+
+# ------------------------------------------------------------
+# 3D target tracking
+#
+# Runtime tuning values for the gimbal-relative constant-
+# velocity tracker. These are algorithm parameters, not
+# camera calibration parameters.
+tracker:
+  min_detect_count: 2
+  max_missed_count: 5
+  max_dt_s: 0.25
+  max_association_distance_m: 1.0
+  position_gain: 1.0
+  velocity_gain: 1.0
+
+# ------------------------------------------------------------
+# 3D prediction
+#
+# Prediction horizon in seconds.
+#
+# Keep this at 0.0 until real end-to-end system latency has
+# been measured. Synthetic tests using 0.08 s do NOT mean the
+# real system latency is 0.08 s.
+prediction:
+  horizon_s: 0.0
+
+# These are NOT calibration parameters. They are manual residual corrections
+# applied during on-site fine-tuning, after geometric calibration. Defaults
+# are all zero.
+vision_compensation:
+  yaw_offset_deg: 0.0
+  pitch_offset_deg: 0.0
+
+  x_offset_m: 0.0
+  y_offset_m: 0.0
+  z_offset_m: 0.0
+
+# ------------------------------------------------------------
+# Production camera runtime
+#
+# Runtime acquisition settings for the formal anti_drone_app
+# entry point (NOT geometric calibration). An empty serial_number
+# means "use the first camera the MVS SDK discovers".
+camera:
+  serial_number: ""
+  exposure: 3000.0
+  gain: 0.0
+  frame_rate: 100.0
+  frame_timeout_ms: 1000
+  max_consecutive_timeouts: 5
+
+# ------------------------------------------------------------
+# Production runtime behaviour
+runtime:
+  log_every_n_frames: 10
+
+# ------------------------------------------------------------
+# Vision telemetry transport
+#
+# How the production application delivers the fixed 50-byte
+# VisionTelemetry packet.
+#
+#   mode: "loopback"            in-memory self-check only (no serial access)
+#   mode: "serial_diagnostic"   forward over a real serial device, for a
+#                               read-only diagnostic receiver
+#
+# This is a diagnostic / result transport only. It does NOT map onto any
+# control / fire / gimbal / actuator command.
+telemetry:
+  mode: "loopback"
+  device: ""
+  baud_rate: 115200
+  max_consecutive_failures: 5
+  flush_after_write: false
+
+# ------------------------------------------------------------
+# Camera / PnP calibration
+#
+# Fill these values only after real camera intrinsic/extrinsic
+# calibration has been completed.
+#
+# All matrices use row-major order.
+# Translation uses meters.
+#
+# camera_matrix:
+#   [fx, 0, cx,
+#    0, fy, cy,
+#    0,  0,  1]
+#
+# distort_coeffs:
+#   [k1, k2, p1, p2, k3]
+#
+# R_camera2gimbal:
+#   [r00, r01, r02,
+#    r10, r11, r12,
+#    r20, r21, r22]
+#
+# t_camera2gimbal:
+#   [tx, ty, tz]
+#
+# R_gimbal2imubody:
+#   [r00, r01, r02,
+#    r10, r11, r12,
+#    r20, r21, r22]
+#
+# max_reprojection_error_px: 5.0
