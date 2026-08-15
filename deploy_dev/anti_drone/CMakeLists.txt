@@ -8,6 +8,7 @@ add_library(anti_drone STATIC
     diagnostic_pipeline.cpp
     diagnostic_csv.cpp
     diagnostic_frame_processor.cpp
+    gimbal_speed_filter.cpp
     vision_telemetry.cpp
     vision_telemetry_stream.cpp
     vision_telemetry_loopback.cpp

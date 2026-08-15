@@ -172,6 +172,8 @@ int main() {
               "telemetry device defaults to /dev/ttyUSB0");
         check(telemetry.baud_rate == 115200,
               "telemetry baud_rate defaults to 115200");
+        check(telemetry.write_timeout_ms == 20,
+              "telemetry write_timeout_ms defaults to 20");
         check(telemetry.max_consecutive_failures == 5,
               "telemetry max_consecutive_failures defaults to 5");
         check(telemetry.flush_after_write == false,

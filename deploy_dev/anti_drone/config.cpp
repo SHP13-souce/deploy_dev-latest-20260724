@@ -248,6 +248,9 @@ void validateTelemetryConfig(const TelemetryTransportConfig& config) {
             fail("telemetry.baud_rate must be one of "
                  "9600, 19200, 38400, 57600, 115200");
     }
+    if (config.write_timeout_ms <= 0) {
+        fail("telemetry.write_timeout_ms must be > 0");
+    }
     if (config.max_consecutive_failures < 1) {
         fail("telemetry.max_consecutive_failures must be >= 1");
     }
@@ -297,11 +300,43 @@ cv::Matx33d matrix3x3FromYaml(const YAML::Node& root, const char* key) {
     return m;
 }
 
+// Validates that a 3x3 matrix is a proper rotation: orthonormal
+// (R * R^T ~= I) and right-handed (det(R) ~= +1). Finite-ness of the elements
+// is already enforced by matrix3x3FromYaml; this catches reflection, shear and
+// scale matrices that would otherwise silently corrupt the extrinsic chain.
+void validateRotationMatrix(const cv::Matx33d& R, const char* name) {
+    constexpr double kTol = 1e-3;
+
+    const cv::Matx33d Rt = R.t();
+    const cv::Matx33d prod = R * Rt;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            const double expected = (r == c) ? 1.0 : 0.0;
+            if (std::fabs(prod(r, c) - expected) > kTol) {
+                throw std::runtime_error(std::string(name) +
+                                         " is not a valid rotation matrix");
+            }
+        }
+    }
+
+    const double det =
+        R(0, 0) * (R(1, 1) * R(2, 2) - R(1, 2) * R(2, 1)) -
+        R(0, 1) * (R(1, 0) * R(2, 2) - R(1, 2) * R(2, 0)) +
+        R(0, 2) * (R(1, 0) * R(2, 1) - R(1, 1) * R(2, 0));
+    if (std::fabs(det - 1.0) > kTol) {
+        throw std::runtime_error(std::string(name) +
+                                 " is not a valid rotation matrix");
+    }
+}
+
 // Loads the optional root-level calibration section. Uses the original
 // project's root-level keys (camera_matrix, distort_coeffs, R_camera2gimbal,
 // t_camera2gimbal, R_gimbal2imubody, max_reprojection_error_px) with an
-// all-or-nothing rule: if none of the six keys appear, calibration is nullopt
-// and loading succeeds; if any appear, the five core keys must all be present.
+// all-or-nothing rule: if none of the keys appear, calibration is nullopt and
+// loading succeeds. The four core keys (camera_matrix, distort_coeffs,
+// R_camera2gimbal, t_camera2gimbal) are required as a set; R_gimbal2imubody is
+// optional and defaults to identity because the current PnP chain does not use
+// it yet.
 std::optional<CalibrationConfig> loadCalibrationConfig(
     const YAML::Node& root) {
     const bool has_camera_matrix = static_cast<bool>(root["camera_matrix"]);
@@ -322,14 +357,13 @@ std::optional<CalibrationConfig> loadCalibrationConfig(
         return std::nullopt;
     }
 
-    // Once the user begins providing calibration, the full core set is
-    // required: partial calibration must not silently enter the system.
+    // Once the user begins providing calibration, the core set is required:
+    // partial calibration must not silently enter the system.
     if (!(has_camera_matrix && has_distort_coeffs && has_R_camera2gimbal &&
-          has_t_camera2gimbal && has_R_gimbal2imubody)) {
+          has_t_camera2gimbal)) {
         throw std::runtime_error(
             "incomplete calibration: camera_matrix, distort_coeffs, "
-            "R_camera2gimbal, t_camera2gimbal and R_gimbal2imubody are all "
-            "required");
+            "R_camera2gimbal and t_camera2gimbal are all required");
     }
 
     CalibrationConfig calib;
@@ -355,6 +389,7 @@ std::optional<CalibrationConfig> loadCalibrationConfig(
     calib.pnp.distort_coeffs = std::move(distort);
 
     calib.pnp.R_camera2gimbal = matrix3x3FromYaml(root, "R_camera2gimbal");
+    validateRotationMatrix(calib.pnp.R_camera2gimbal, "R_camera2gimbal");
 
     const std::vector<double> t =
         root["t_camera2gimbal"].as<std::vector<double>>();
@@ -369,7 +404,34 @@ std::optional<CalibrationConfig> loadCalibrationConfig(
     }
     calib.pnp.t_camera2gimbal = cv::Vec3d(t[0], t[1], t[2]);
 
-    calib.R_gimbal2imubody = matrix3x3FromYaml(root, "R_gimbal2imubody");
+    // R_gimbal2imubody is optional at this stage: it is not yet consumed by
+    // the PnP / gimbal-relative solve. When absent it keeps the default
+    // identity; when present it must be a valid rotation.
+    if (has_R_gimbal2imubody) {
+        calib.R_gimbal2imubody = matrix3x3FromYaml(root, "R_gimbal2imubody");
+        validateRotationMatrix(calib.R_gimbal2imubody, "R_gimbal2imubody");
+    }
+
+    // Optional runtime resolution pinning (both or neither; > 0 to enable).
+    if (static_cast<bool>(root["calibration_image_width"])) {
+        calib.calibration_image_width =
+            root["calibration_image_width"].as<int>();
+    }
+    if (static_cast<bool>(root["calibration_image_height"])) {
+        calib.calibration_image_height =
+            root["calibration_image_height"].as<int>();
+    }
+    if (calib.calibration_image_width < 0 ||
+        calib.calibration_image_height < 0) {
+        throw std::runtime_error(
+            "calibration_image_width/height must be >= 0");
+    }
+    if ((calib.calibration_image_width > 0) !=
+        (calib.calibration_image_height > 0)) {
+        throw std::runtime_error(
+            "calibration_image_width and calibration_image_height must both "
+            "be > 0 or both be 0");
+    }
 
     // max_reprojection_error_px is optional and defaults to the struct's 5.0.
     if (has_max_reprojection) {
@@ -402,6 +464,18 @@ const char* telemetryTransportModeName(TelemetryTransportMode mode) noexcept {
 bool telemetryTransportModeIsSerial(TelemetryTransportMode mode) noexcept {
     return mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC ||
            mode == TelemetryTransportMode::SERIAL;
+}
+
+bool calibrationResolutionMatches(
+    const CalibrationConfig& calibration,
+    int image_cols,
+    int image_rows) {
+    if (calibration.calibration_image_width <= 0 ||
+        calibration.calibration_image_height <= 0) {
+        return true;
+    }
+    return image_cols == calibration.calibration_image_width &&
+           image_rows == calibration.calibration_image_height;
 }
 
 AntiDroneConfig loadAntiDroneConfig(
@@ -578,6 +652,8 @@ AntiDroneConfig loadAntiDroneConfig(
             tel["device"].as<std::string>(telemetry.device);
         telemetry.baud_rate =
             tel["baud_rate"].as<int>(telemetry.baud_rate);
+        telemetry.write_timeout_ms =
+            tel["write_timeout_ms"].as<int>(telemetry.write_timeout_ms);
         telemetry.max_consecutive_failures =
             tel["max_consecutive_failures"].as<int>(
                 telemetry.max_consecutive_failures);

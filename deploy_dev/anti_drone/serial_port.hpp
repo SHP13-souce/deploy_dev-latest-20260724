@@ -22,6 +22,10 @@ public:
     // 是否已打开
     bool isOpen() const;
 
+    // 设置单次 write 的 poll 超时(毫秒)。值必须 > 0；<= 0 的入参被忽略，
+    // 保留当前值。超时后 write 返回 false。
+    void setWriteTimeoutMs(int timeout_ms);
+
     // 写入全部数据 (处理 partial write/EINTR/EAGAIN)
     bool write(const std::vector<uint8_t>& data);
 
@@ -37,6 +41,7 @@ public:
 private:
     int fd_ = -1;
     std::string device_;
+    int write_timeout_ms_ = 20;  // poll() timeout per write attempt
 };
 
 }  // namespace hnu25

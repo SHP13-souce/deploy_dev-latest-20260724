@@ -77,6 +77,22 @@ add_test(
 )
 
 add_executable(
+    anti_drone_gimbal_speed_filter_test
+    anti_drone_gimbal_speed_filter_test.cpp
+)
+
+target_link_libraries(
+    anti_drone_gimbal_speed_filter_test
+    PRIVATE
+    anti_drone
+)
+
+add_test(
+    NAME anti_drone_gimbal_speed_filter
+    COMMAND anti_drone_gimbal_speed_filter_test
+)
+
+add_executable(
     anti_drone_pnp_test
     anti_drone_pnp_test.cpp
 )
