@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <exception>
@@ -31,12 +32,14 @@
 // Data chain (normal mode):
 //   HikFrameSource -> Frame -> DiagnosticFrameProcessor::process()
 //     -> DiagnosticFrameProcessorResult -> makeVisionTelemetry()
-//     -> VisionTelemetry -> encodeVisionTelemetry() -> 50-byte packet.
+//     -> VisionTelemetry -> encodeVisionTelemetry() -> fixed-size packet.
 //
-// The 50-byte packet is produced as the module's final diagnostic output, but
-// this entry point deliberately does NOT open a serial port, connect to the
-// communication module, or emit any gimbal / fire / control command. It reuses
-// the existing modules only and reimplements none of the math.
+// The fixed-size packet carries the vision result plus a gimbal-following
+// angular-rate output. Depending on the configured telemetry mode it is either
+// verified in-memory (loopback) or forwarded over a real serial device to the
+// electrical control unit. It never emits any fire / actuator command; gimbal
+// following is expressed only as pointing direction + angular rate. The entry
+// point reuses the existing modules only and reimplements none of their math.
 //
 // Return codes:
 //   1 usage error
@@ -69,14 +72,14 @@ std::uint64_t toMicroseconds(std::chrono::steady_clock::time_point tp) {
             .count());
 }
 
-// Builds the configured transport. SERIAL_DIAGNOSTIC is only available when
-// the build links the serial transport (HNU25_HAS_SERIAL_TELEMETRY); otherwise
-// requesting it is a configuration error surfaced here as a throw.
+// Builds the configured transport. Serial modes (SERIAL, SERIAL_DIAGNOSTIC)
+// are only available when the build links the serial transport
+// (HNU25_HAS_SERIAL_TELEMETRY); otherwise requesting one is a configuration
+// error surfaced here as a throw.
 std::unique_ptr<hnu25::anti_drone::VisionTelemetryTransport>
 makeTelemetryTransport(
     const hnu25::anti_drone::TelemetryTransportConfig& config) {
-    using hnu25::anti_drone::TelemetryTransportMode;
-    if (config.mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+    if (hnu25::anti_drone::telemetryTransportModeIsSerial(config.mode)) {
 #if HNU25_HAS_SERIAL_TELEMETRY
         hnu25::anti_drone::VisionTelemetrySerialTransportConfig serial;
         serial.device = config.device;
@@ -87,8 +90,7 @@ makeTelemetryTransport(
             std::move(serial));
 #else
         throw std::runtime_error(
-            "SERIAL_DIAGNOSTIC telemetry transport is not available "
-            "in this build");
+            "serial telemetry transport is not available in this build");
 #endif
     }
     return std::make_unique<
@@ -134,16 +136,16 @@ void printStartupSummary(
     }
     std::cout << '\n';
 
-    const bool serial_diagnostic =
-        config.telemetry.mode ==
-        hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC;
+    const bool serial_mode =
+        hnu25::anti_drone::telemetryTransportModeIsSerial(
+            config.telemetry.mode);
 
     std::cout << "Vision telemetry transport:\n";
     std::cout << "  mode: "
               << hnu25::anti_drone::telemetryTransportModeName(
                      config.telemetry.mode)
               << '\n';
-    if (serial_diagnostic) {
+    if (serial_mode) {
         std::cout << "  device: " << config.telemetry.device << '\n';
         std::cout << "  baud_rate: " << config.telemetry.baud_rate << '\n';
     }
@@ -156,10 +158,18 @@ void printStartupSummary(
     std::cout << "  READY\n";
     std::cout << '\n';
 
+    std::cout << "Gimbal following:\n";
+    std::cout << "  enabled: " << std::boolalpha
+              << config.gimbal.enable << '\n';
+    std::cout << "  send_speed: " << config.gimbal.send_speed << '\n';
+    std::cout << "  speed_filter_alpha: " << config.gimbal.speed_filter_alpha
+              << '\n';
+    std::cout << '\n';
+
     std::cout << "External serial output: "
-              << (serial_diagnostic ? "DIAGNOSTIC" : "DISABLED") << '\n';
+              << (serial_mode ? "ENABLED" : "DISABLED") << '\n';
     std::cout << "Loopback verification: "
-              << (serial_diagnostic ? "startup check only" : "ENABLED")
+              << (serial_mode ? "startup check only" : "ENABLED")
               << "\n\n";
 }
 
@@ -182,6 +192,9 @@ void printFrameStatus(
         std::cout << std::fixed << std::setprecision(4);
         std::cout << "  yaw_rad: " << telemetry.yaw_rad << '\n';
         std::cout << "  pitch_rad: " << telemetry.pitch_rad << '\n';
+        std::cout << "  yaw_speed_rad_s: " << telemetry.yaw_speed_rad_s << '\n';
+        std::cout << "  pitch_speed_rad_s: " << telemetry.pitch_speed_rad_s
+                  << '\n';
         std::cout << "  x_m: " << telemetry.x_m << '\n';
         std::cout << "  y_m: " << telemetry.y_m << '\n';
         std::cout << "  z_m: " << telemetry.z_m << '\n';
@@ -250,8 +263,8 @@ int main(int argc, char** argv) {
                       << hnu25::anti_drone::telemetryTransportModeName(
                              config.telemetry.mode)
                       << '\n';
-            if (config.telemetry.mode ==
-                hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+            if (hnu25::anti_drone::telemetryTransportModeIsSerial(
+                    config.telemetry.mode)) {
                 std::cout << "  device: " << config.telemetry.device << '\n';
                 std::cout << "  baud_rate: " << config.telemetry.baud_rate
                           << '\n';
@@ -298,14 +311,14 @@ int main(int argc, char** argv) {
             return loopback_pass ? 0 : 8;
         }
 
-        // ── Runtime transport: LOOPBACK or SERIAL_DIAGNOSTIC ──────────────
+        // ── Runtime transport: LOOPBACK, SERIAL, or SERIAL_DIAGNOSTIC ──────
         auto transport = makeTelemetryTransport(config.telemetry);
 
 #if HNU25_HAS_SERIAL_TELEMETRY
-        // SERIAL_DIAGNOSTIC must open before the frame loop; an open failure
+        // A serial transport must open before the frame loop; an open failure
         // is a startup error, not a silent mid-loop failure.
-        if (config.telemetry.mode ==
-            hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+        if (hnu25::anti_drone::telemetryTransportModeIsSerial(
+                config.telemetry.mode)) {
             auto* serial_transport =
                 dynamic_cast<
                     hnu25::anti_drone::VisionTelemetrySerialTransport*>(
@@ -358,6 +371,17 @@ int main(int argc, char** argv) {
         bool previous_vision_valid = false;
         bool have_previous = false;
 
+        // Gimbal-following angular-rate filter state. The rate is the filtered
+        // first difference of the compensated pointing direction across valid
+        // frames; it resets to 0 whenever the solution becomes invalid so a
+        // stale rate never spans a target-loss gap.
+        bool have_prev_speed = false;
+        double prev_yaw_rad = 0.0;
+        double prev_pitch_rad = 0.0;
+        double filt_yaw_speed = 0.0;
+        double filt_pitch_speed = 0.0;
+        std::chrono::steady_clock::time_point prev_captured_at{};
+
         int exit_code = 0;
         int consecutive_transport_failures = 0;
 
@@ -390,14 +414,53 @@ int main(int argc, char** argv) {
             const std::uint64_t timestamp_us =
                 toMicroseconds(frame.captured_at);
 
-            const auto telemetry =
+            auto telemetry =
                 hnu25::anti_drone::makeVisionTelemetry(
                     result, sequence, timestamp_us);
 
-            // Produce the fixed 50-byte packet, then feed it through the
-            // configured transport (loopback or diagnostic serial). The
-            // transport expresses only "send VisionTelemetry bytes" — no
-            // control / fire / gimbal semantics.
+            // Gimbal-following angular-rate output: filtered first difference
+            // of the compensated pointing direction. 0 on the first valid
+            // frame and whenever the solution is invalid.
+            if (config.gimbal.enable && config.gimbal.send_speed &&
+                telemetry.vision_valid) {
+                if (have_prev_speed) {
+                    const double dt = std::chrono::duration<double>(
+                        frame.captured_at - prev_captured_at).count();
+                    if (dt > 0.0) {
+                        const double alpha = config.gimbal.speed_filter_alpha;
+                        const double raw_yaw =
+                            (static_cast<double>(telemetry.yaw_rad) -
+                             prev_yaw_rad) / dt;
+                        const double raw_pitch =
+                            (static_cast<double>(telemetry.pitch_rad) -
+                             prev_pitch_rad) / dt;
+                        filt_yaw_speed =
+                            (1.0 - alpha) * filt_yaw_speed + alpha * raw_yaw;
+                        filt_pitch_speed =
+                            (1.0 - alpha) * filt_pitch_speed + alpha * raw_pitch;
+                        if (std::isfinite(filt_yaw_speed) &&
+                            std::isfinite(filt_pitch_speed)) {
+                            telemetry.yaw_speed_rad_s =
+                                static_cast<float>(filt_yaw_speed);
+                            telemetry.pitch_speed_rad_s =
+                                static_cast<float>(filt_pitch_speed);
+                        }
+                    }
+                }
+                prev_yaw_rad = static_cast<double>(telemetry.yaw_rad);
+                prev_pitch_rad = static_cast<double>(telemetry.pitch_rad);
+                prev_captured_at = frame.captured_at;
+                have_prev_speed = true;
+            } else {
+                have_prev_speed = false;
+                filt_yaw_speed = 0.0;
+                filt_pitch_speed = 0.0;
+            }
+
+            // Produce the fixed-size packet, then feed it through the
+            // configured transport (loopback or serial). The transport
+            // expresses only "send VisionTelemetry bytes" — no control / fire
+            // / gimbal semantics.
             const std::vector<std::uint8_t> packet =
                 hnu25::anti_drone::encodeVisionTelemetry(telemetry);
             if (transport->send(packet)) {
@@ -437,8 +500,8 @@ int main(int argc, char** argv) {
         std::cout << "Camera stopped.\n";
 
 #if HNU25_HAS_SERIAL_TELEMETRY
-        if (config.telemetry.mode ==
-            hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+        if (hnu25::anti_drone::telemetryTransportModeIsSerial(
+                config.telemetry.mode)) {
             auto* serial_transport =
                 dynamic_cast<
                     hnu25::anti_drone::VisionTelemetrySerialTransport*>(

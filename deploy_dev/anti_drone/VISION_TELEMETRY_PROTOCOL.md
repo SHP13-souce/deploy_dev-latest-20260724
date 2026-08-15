@@ -9,7 +9,7 @@ control, fire, actuator, or gimbal commands.
 | Field        | Value                |
 |--------------|----------------------|
 | Protocol     | VisionTelemetry v1   |
-| Packet size  | 50 bytes (fixed)     |
+| Packet size  | 58 bytes (fixed)     |
 | Endian       | little-endian        |
 | Magic        | `0x41 0x44` ("AD")   |
 | CRC          | CRC-16/CCITT-FALSE   |
@@ -25,7 +25,7 @@ control, fire, actuator, or gimbal commands.
 | xorout    | 0x0000 |
 
 The CRC covers every byte from the magic header up to (but not including) the
-2-byte CRC trailer (bytes 0..47). It is transmitted little-endian (low byte
+2-byte CRC trailer (bytes 0..55). It is transmitted little-endian (low byte
 first).
 
 ## Byte layout
@@ -34,7 +34,7 @@ first).
 |----------------|-----------------------|---------|-----------------------------|
 | 0–1            | magic                 | uint8   | `0x41 0x44` ("AD")          |
 | 2              | version               | uint8   | `1`                         |
-| 3              | payload_length        | uint8   | `44`                        |
+| 3              | payload_length        | uint8   | `52`                        |
 | 4–7            | sequence              | uint32  | little-endian               |
 | 8–15           | timestamp_us          | uint64  | little-endian               |
 | 16–17          | status_flags          | uint16  | little-endian, see below    |
@@ -48,7 +48,9 @@ first).
 | 40–43          | prediction_horizon_s  | float32 | little-endian               |
 | 44–45          | detection_count       | uint16  | little-endian               |
 | 46–47          | pnp_measurement_count | uint16  | little-endian               |
-| 48–49          | CRC                   | uint16  | little-endian               |
+| 48–51          | yaw_speed_rad_s       | float32 | little-endian               |
+| 52–55          | pitch_speed_rad_s     | float32 | little-endian               |
+| 56–57          | CRC                   | uint16  | little-endian               |
 
 ## status_flags (bits 0–4)
 
@@ -76,6 +78,7 @@ first).
 - `x_m` / `y_m` / `z_m`: meters
 - `prediction_horizon_s`: seconds
 - `timestamp_us`: microseconds
+- `yaw_speed_rad_s` / `pitch_speed_rad_s`: radians/second
 
 ## Semantics
 
@@ -83,6 +86,12 @@ first).
 `vision_valid == 1` do `yaw_rad`, `pitch_rad`, `x_m`, `y_m`, `z_m` carry a
 valid vision result. When `vision_valid == 0`, those fields are meaningless — a
 value of `0` must NOT be interpreted as "true zero angle / zero position".
+
+**`yaw_speed_rad_s` / `pitch_speed_rad_s`** are the gimbal-following angular
+rates of the compensated pointing direction, in radians/second. They are the
+low-pass-filtered first difference of `yaw_rad` / `pitch_rad` across
+consecutive valid frames. They are `0` on the first valid frame and whenever
+`vision_valid == 0`, so a rate never spans a target-loss gap.
 
 **`sequence`** is a counter (modulo 2^32) assigned to each successfully
 processed, non-empty frame. It lets a downstream consumer detect lost,
@@ -95,7 +104,7 @@ wall-clock timestamp.
 
 ## Transport notes
 
-- **Fixed size.** Every packet is exactly 50 bytes; there is no length or
+- **Fixed size.** Every packet is exactly 58 bytes; there is no length or
   delimiter field that varies per packet.
 - **Parse as a byte stream.** A serial link delivers bytes, not packets: a
   single read may return a partial packet, several packets, or a packet split

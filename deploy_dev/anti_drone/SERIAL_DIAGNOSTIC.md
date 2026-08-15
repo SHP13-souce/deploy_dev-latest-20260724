@@ -1,6 +1,6 @@
 # SERIAL_DIAGNOSTIC Transport
 
-The production anti-drone application can deliver its fixed 50-byte
+The production anti-drone application can deliver its fixed-size
 `VisionTelemetry v1` packet over a real serial device, for a separate read-only
 receiver. This is a **software diagnostic mode**: it forwards the vision
 *result* only. It does **not** map the result onto any actuator / gimbal / fire
@@ -13,23 +13,25 @@ The application transport is chosen by the `telemetry:` section of
 
 ```yaml
 telemetry:
-  mode: "loopback"            # or "serial_diagnostic"
-  device: "/dev/ttyUSB0"      # serial device path (required for serial_diagnostic)
+  mode: "serial"              # "loopback" | "serial_diagnostic" | "serial"
+  device: "/dev/ttyUSB0"      # serial device path (required for serial modes)
   baud_rate: 115200           # 9600 | 19200 | 38400 | 57600 | 115200
   max_consecutive_failures: 5 # consecutive send failures that stop the app
   flush_after_write: false    # tcdrain after each accepted write
 ```
 
-- `mode: "loopback"` (default) keeps the in-memory self-check; no serial device
-  is ever opened.
-- `mode: "serial_diagnostic"` opens `device` before the frame loop and forwards
-  every encoded packet over `hnu25::SerialPort`.
+- `mode: "loopback"` keeps the in-memory self-check; no serial device is ever
+  opened.
+- `mode: "serial"` (production gimbal following) and `mode: "serial_diagnostic"`
+  (read-only diagnostic) open `device` before the frame loop and forward every
+  encoded packet over `hnu25::SerialPort`. `serial` additionally emits the
+  gimbal-following angular-rate output.
 
 ## What the transport does (and does not do)
 
 `VisionTelemetrySerialTransport` only:
 
-1. validates the packet is exactly 50 bytes,
+1. validates the packet is exactly the fixed packet size,
 2. manages the open/close lifecycle,
 3. calls `hnu25::SerialPort::write()` (which already handles partial writes,
    `EINTR`, and `EAGAIN`/`poll`),
@@ -68,7 +70,7 @@ statistics (`packets_submitted`, `packets_accepted`, `bytes_accepted`,
 |----------------------|---------------------------------------------|
 | `packets_submitted`  | every `send()` call                         |
 | `packets_accepted`   | packets accepted by the serial device       |
-| `bytes_accepted`     | accepted packet bytes (50 per packet)       |
+| `bytes_accepted`     | accepted packet bytes (fixed packet size)   |
 | `failures`           | wrong-size, not-open, or write failures     |
 
 ## Read-only receiver

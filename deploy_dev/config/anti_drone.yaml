@@ -89,21 +89,34 @@ runtime:
 # ------------------------------------------------------------
 # Vision telemetry transport
 #
-# How the production application delivers the fixed 50-byte
-# VisionTelemetry packet.
+# How the production application delivers the fixed-size VisionTelemetry
+# packet to the electrical control unit.
 #
 #   mode: "loopback"            in-memory self-check only (no serial access)
 #   mode: "serial_diagnostic"   forward over a real serial device, for a
 #                               read-only diagnostic receiver
+#   mode: "serial"              forward over a real serial device for
+#                               production gimbal following
 #
-# This is a diagnostic / result transport only. It does NOT map onto any
-# control / fire / gimbal / actuator command.
+# The packet carries the vision result plus a gimbal-following angular-rate
+# output. It does NOT map onto any fire / actuator command.
 telemetry:
-  mode: "loopback"
-  device: ""
+  mode: "serial"
+  device: "/dev/ttyUSB0"
   baud_rate: 115200
   max_consecutive_failures: 5
   flush_after_write: false
+
+# ------------------------------------------------------------
+# Gimbal following
+#
+# Vision-side output for gimbal following. The yaw/pitch angular rate is the
+# low-pass-filtered first difference of the compensated pointing direction,
+# emitted as yaw_speed_rad_s / pitch_speed_rad_s in the telemetry packet.
+gimbal:
+  enable: true
+  send_speed: true
+  speed_filter_alpha: 0.3
 
 # ------------------------------------------------------------
 # Camera / PnP calibration

@@ -27,9 +27,10 @@ namespace {
 //   float  prediction_horizon_s     4
 //   uint16 detection_count          2
 //   uint16 pnp_measurement_count    2
+//   float  yaw_speed_rad_s          4
+//   float  pitch_speed_rad_s        4
 //                                  --
-//                                  44
-constexpr std::size_t kVisionTelemetryPayloadLength = 44;
+//                                  52
 
 static_assert(kVisionTelemetryPacketSize ==
                   4 + kVisionTelemetryPayloadLength + 2,
@@ -279,6 +280,11 @@ std::vector<std::uint8_t> encodeVisionTelemetry(
         throw std::invalid_argument(
             "prediction_horizon_s must be finite and >= 0");
     }
+    if (!std::isfinite(telemetry.yaw_speed_rad_s) ||
+        !std::isfinite(telemetry.pitch_speed_rad_s)) {
+        throw std::invalid_argument(
+            "yaw/pitch speed must be finite");
+    }
     if (telemetry.vision_valid &&
         (!std::isfinite(telemetry.yaw_rad) ||
          !std::isfinite(telemetry.pitch_rad) ||
@@ -312,6 +318,8 @@ std::vector<std::uint8_t> encodeVisionTelemetry(
     appendF32(out, telemetry.prediction_horizon_s);
     appendU16(out, telemetry.detection_count);
     appendU16(out, telemetry.pnp_measurement_count);
+    appendF32(out, telemetry.yaw_speed_rad_s);
+    appendF32(out, telemetry.pitch_speed_rad_s);
 
     // CRC covers every byte from the magic up to (not including) the CRC.
     appendU16(out, visionTelemetryCrc16(out.data(), out.size()));
@@ -352,6 +360,8 @@ bool decodeVisionTelemetry(const std::vector<std::uint8_t>& bytes,
     temp.prediction_horizon_s = readF32(p); p += 4;
     temp.detection_count = readU16(p); p += 2;
     temp.pnp_measurement_count = readU16(p); p += 2;
+    temp.yaw_speed_rad_s = readF32(p); p += 4;
+    temp.pitch_speed_rad_s = readF32(p); p += 4;
 
     // v1 only defines status bits 0..4; unknown bits mean a newer protocol.
     if ((status_flags & ~0x001Fu) != 0) {
@@ -369,7 +379,9 @@ bool decodeVisionTelemetry(const std::vector<std::uint8_t>& bytes,
 
     if (!std::isfinite(temp.yaw_rad) || !std::isfinite(temp.pitch_rad) ||
         !std::isfinite(temp.x_m) || !std::isfinite(temp.y_m) ||
-        !std::isfinite(temp.z_m) || !std::isfinite(temp.prediction_horizon_s)) {
+        !std::isfinite(temp.z_m) || !std::isfinite(temp.prediction_horizon_s) ||
+        !std::isfinite(temp.yaw_speed_rad_s) ||
+        !std::isfinite(temp.pitch_speed_rad_s)) {
         return false;
     }
     // encode requires horizon >= 0; decode enforces the same contract.

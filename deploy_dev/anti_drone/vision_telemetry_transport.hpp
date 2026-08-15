@@ -15,7 +15,7 @@ struct VisionTelemetryTransportStats {
     std::uint64_t failures = 0;
 };
 
-// Abstract transport for handing encoded VisionTelemetry packets (50 bytes,
+// Abstract transport for handing encoded VisionTelemetry packets (58 bytes,
 // v1 wire format) to a downstream consumer. A concrete transport may be
 // in-memory (loopback), a serial link, a socket, etc. — but this interface
 // itself expresses only "send VisionTelemetry bytes". It never expresses

@@ -66,19 +66,42 @@ struct AntiDroneRuntimeConfig {
     int log_every_n_frames = 10;
 };
 
+// Gimbal-following behaviour for the production entry point. This covers only
+// the vision side's output for gimbal following: whether to emit the
+// yaw/pitch angular-rate fields and how strongly to low-pass them. It
+// expresses no fire / actuator / control command.
+struct GimbalConfig {
+    // Master switch for gimbal-following speed output. When false, the speed
+    // fields stay at 0 and the speed filter is not advanced.
+    bool enable = true;
+
+    // Emit the yaw_speed_rad_s / pitch_speed_rad_s fields. Ignored when
+    // enable is false.
+    bool send_speed = true;
+
+    // Low-pass coefficient for the angular-rate filter: the new-sample weight
+    // in [0, 1]. filtered = (1 - alpha) * old + alpha * raw.
+    double speed_filter_alpha = 0.3;
+};
+
 // Which concrete transport the production application uses to deliver the
-// 50-byte VisionTelemetry packet. LOOPBACK is an in-memory self-check only;
-// SERIAL_DIAGNOSTIC forwards the packet over a real serial device for a
-// read-only diagnostic receiver. Neither mode carries control / fire / gimbal
+// fixed-size VisionTelemetry packet. LOOPBACK is an in-memory self-check only;
+// SERIAL and SERIAL_DIAGNOSTIC both forward the packet over a real serial
+// device (SERIAL for production gimbal following, SERIAL_DIAGNOSTIC for a
+// read-only diagnostic receiver). No mode carries fire / actuator / control
 // semantics.
 enum class TelemetryTransportMode {
     LOOPBACK,
     SERIAL_DIAGNOSTIC,
+    SERIAL,
 };
 
 // Human-readable name for a transport mode. Unknown enum values (future
 // extensions) map to "UNKNOWN" rather than throwing.
 const char* telemetryTransportModeName(TelemetryTransportMode mode) noexcept;
+
+// True for modes that open a real serial device (SERIAL, SERIAL_DIAGNOSTIC).
+bool telemetryTransportModeIsSerial(TelemetryTransportMode mode) noexcept;
 
 // Transport selection for the production application.
 struct TelemetryTransportConfig {
@@ -115,6 +138,11 @@ struct AntiDroneConfig {
     // optional "telemetry:" YAML section; the defaults keep older config
     // files compatible (LOOPBACK, no serial access).
     TelemetryTransportConfig telemetry;
+
+    // Gimbal-following output behaviour. Loaded from the optional "gimbal:"
+    // YAML section; the defaults (enable + send_speed, alpha 0.3) keep older
+    // config files compatible.
+    GimbalConfig gimbal;
 };
 
 // Loads the full anti-drone configuration from a YAML file. The file must
