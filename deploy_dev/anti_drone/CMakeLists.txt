@@ -100,3 +100,23 @@ target_link_libraries(
     camera
     opencv_core
 )
+
+add_executable(
+    anti_drone_sequence_preview
+    sequence_preview.cpp
+)
+
+target_include_directories(
+    anti_drone_sequence_preview
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    anti_drone_sequence_preview
+    PRIVATE
+    anti_drone
+    opencv_core
+    opencv_imgcodecs
+)
