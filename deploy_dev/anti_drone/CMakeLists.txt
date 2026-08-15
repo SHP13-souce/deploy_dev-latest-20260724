@@ -80,3 +80,23 @@ target_link_libraries(
     opencv_core
     opencv_imgcodecs
 )
+
+add_executable(
+    anti_drone_hik_detection_preview
+    hik_detection_preview.cpp
+)
+
+target_include_directories(
+    anti_drone_hik_detection_preview
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    anti_drone_hik_detection_preview
+    PRIVATE
+    anti_drone
+    camera
+    opencv_core
+)
