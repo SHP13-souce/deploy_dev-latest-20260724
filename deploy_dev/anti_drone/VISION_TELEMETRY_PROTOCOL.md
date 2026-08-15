@@ -93,6 +93,27 @@ continuous, not a gap.
 (`std::chrono::steady_clock`), converted to microseconds. It is NOT a UTC
 wall-clock timestamp.
 
+## Transport notes
+
+- **Fixed size.** Every packet is exactly 50 bytes; there is no length or
+  delimiter field that varies per packet.
+- **Parse as a byte stream.** A serial link delivers bytes, not packets: a
+  single read may return a partial packet, several packets, or a packet split
+  across reads. Never assume one read == one packet.
+- **Resync on magic.** The receiver searches for the `0x41 0x44` ("AD") magic
+  marker and treats anything before it as garbage to discard. This lets the
+  parser recover from a mid-stream start or a corrupted byte.
+- **CRC-fail discard + resync.** A candidate packet whose CRC does not match
+  (or whose version / payload length / track-state / float fields are invalid)
+  is dropped, and the parser resumes searching for the next magic marker. One
+  bad packet does not poison the rest of the stream.
+- **Sequence for loss / duplicate / reorder.** `sequence` lets the consumer
+  detect gaps (loss), repeats (duplicates), and out-of-order delivery. It rolls
+  over modulo 2^32; rollover is continuous, not a gap.
+- **`vision_valid` gates the direction / position fields.** `yaw_rad`,
+  `pitch_rad`, `x_m`, `y_m`, `z_m` are only meaningful when `vision_valid == 1`
+  (see Semantics above).
+
 ## Control semantics
 
 This protocol is a vision-result / telemetry / diagnostic-result transport

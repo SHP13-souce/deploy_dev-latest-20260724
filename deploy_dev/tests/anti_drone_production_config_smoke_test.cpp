@@ -163,6 +163,18 @@ int main() {
         check(config.runtime.log_every_n_frames >= 1,
               "runtime log_every_n_frames sane (>= 1)");
 
+        // ── Test 11: telemetry transport defaults (LOOPBACK) ──────────────
+        const auto& telemetry = config.telemetry;
+        check(telemetry.mode ==
+                  hnu25::anti_drone::TelemetryTransportMode::LOOPBACK,
+              "telemetry mode defaults to LOOPBACK");
+        check(telemetry.baud_rate == 115200,
+              "telemetry baud_rate defaults to 115200");
+        check(telemetry.max_consecutive_failures == 5,
+              "telemetry max_consecutive_failures defaults to 5");
+        check(telemetry.flush_after_write == false,
+              "telemetry flush_after_write defaults to false");
+
         if (g_failures == 0) {
             std::cout << "All production config smoke checks passed.\n";
             return 0;

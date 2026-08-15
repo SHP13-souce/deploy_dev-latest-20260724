@@ -66,6 +66,29 @@ struct AntiDroneRuntimeConfig {
     int log_every_n_frames = 10;
 };
 
+// Which concrete transport the production application uses to deliver the
+// 50-byte VisionTelemetry packet. LOOPBACK is an in-memory self-check only;
+// SERIAL_DIAGNOSTIC forwards the packet over a real serial device for a
+// read-only diagnostic receiver. Neither mode carries control / fire / gimbal
+// semantics.
+enum class TelemetryTransportMode {
+    LOOPBACK,
+    SERIAL_DIAGNOSTIC,
+};
+
+// Human-readable name for a transport mode. Unknown enum values (future
+// extensions) map to "UNKNOWN" rather than throwing.
+const char* telemetryTransportModeName(TelemetryTransportMode mode) noexcept;
+
+// Transport selection for the production application.
+struct TelemetryTransportConfig {
+    TelemetryTransportMode mode = TelemetryTransportMode::LOOPBACK;
+    std::string device;                  // serial device path (empty for LOOPBACK)
+    int baud_rate = 115200;              // one of {9600,19200,38400,57600,115200}
+    int max_consecutive_failures = 5;    // consecutive send failures stop the app
+    bool flush_after_write = false;      // tcdrain after each accepted write
+};
+
 // Aggregates all anti-drone configuration into a single loadable unit.
 struct AntiDroneConfig {
     TraditionalDetectorConfig traditional_detector;
@@ -87,6 +110,11 @@ struct AntiDroneConfig {
     // config files compatible.
     RuntimeCameraConfig camera;
     AntiDroneRuntimeConfig runtime;
+
+    // Production vision-telemetry transport selection. Loaded from the
+    // optional "telemetry:" YAML section; the defaults keep older config
+    // files compatible (LOOPBACK, no serial access).
+    TelemetryTransportConfig telemetry;
 };
 
 // Loads the full anti-drone configuration from a YAML file. The file must

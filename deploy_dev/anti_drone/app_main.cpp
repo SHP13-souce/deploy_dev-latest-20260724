@@ -5,6 +5,9 @@
 #include "anti_drone/vision_telemetry_loopback.hpp"
 #include "anti_drone/vision_telemetry_stream.hpp"
 #include "anti_drone/vision_telemetry_transport.hpp"
+#if HNU25_HAS_SERIAL_TELEMETRY
+#include "anti_drone/vision_telemetry_serial_transport.hpp"
+#endif
 
 #include "camera/frame.hpp"
 #include "camera/hik_frame_source.hpp"
@@ -16,8 +19,11 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Formal Anti-Drone vision application entry point.
@@ -41,6 +47,8 @@
 //   6 unexpected exception
 //   7 Hik MVS support unavailable in this build
 //   8 loopback smoke failure (--check)
+//   9 telemetry transport open failure
+//  10 telemetry consecutive send-failure limit reached
 
 namespace {
 
@@ -59,6 +67,32 @@ std::uint64_t toMicroseconds(std::chrono::steady_clock::time_point tp) {
         std::chrono::duration_cast<std::chrono::microseconds>(
             tp.time_since_epoch())
             .count());
+}
+
+// Builds the configured transport. SERIAL_DIAGNOSTIC is only available when
+// the build links the serial transport (HNU25_HAS_SERIAL_TELEMETRY); otherwise
+// requesting it is a configuration error surfaced here as a throw.
+std::unique_ptr<hnu25::anti_drone::VisionTelemetryTransport>
+makeTelemetryTransport(
+    const hnu25::anti_drone::TelemetryTransportConfig& config) {
+    using hnu25::anti_drone::TelemetryTransportMode;
+    if (config.mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+#if HNU25_HAS_SERIAL_TELEMETRY
+        hnu25::anti_drone::VisionTelemetrySerialTransportConfig serial;
+        serial.device = config.device;
+        serial.baud_rate = config.baud_rate;
+        serial.flush_after_write = config.flush_after_write;
+        return std::make_unique<
+            hnu25::anti_drone::VisionTelemetrySerialTransport>(
+            std::move(serial));
+#else
+        throw std::runtime_error(
+            "SERIAL_DIAGNOSTIC telemetry transport is not available "
+            "in this build");
+#endif
+    }
+    return std::make_unique<
+        hnu25::anti_drone::VisionTelemetryLoopbackTransport>();
 }
 
 void printStartupSummary(
@@ -100,8 +134,19 @@ void printStartupSummary(
     }
     std::cout << '\n';
 
+    const bool serial_diagnostic =
+        config.telemetry.mode ==
+        hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC;
+
     std::cout << "Vision telemetry transport:\n";
-    std::cout << "  mode: LOOPBACK\n";
+    std::cout << "  mode: "
+              << hnu25::anti_drone::telemetryTransportModeName(
+                     config.telemetry.mode)
+              << '\n';
+    if (serial_diagnostic) {
+        std::cout << "  device: " << config.telemetry.device << '\n';
+        std::cout << "  baud_rate: " << config.telemetry.baud_rate << '\n';
+    }
     std::cout << "  packet_size: "
               << hnu25::anti_drone::kVisionTelemetryPacketSize << '\n';
     std::cout << "  protocol_version: "
@@ -111,8 +156,11 @@ void printStartupSummary(
     std::cout << "  READY\n";
     std::cout << '\n';
 
-    std::cout << "External serial output: DISABLED\n";
-    std::cout << "Loopback verification: ENABLED\n\n";
+    std::cout << "External serial output: "
+              << (serial_diagnostic ? "DIAGNOSTIC" : "DISABLED") << '\n';
+    std::cout << "Loopback verification: "
+              << (serial_diagnostic ? "startup check only" : "ENABLED")
+              << "\n\n";
 }
 
 void printFrameStatus(
@@ -144,6 +192,8 @@ void printFrameStatus(
               << transport_stats.packets_submitted << '\n';
     std::cout << "  telemetry_packets_accepted: "
               << transport_stats.packets_accepted << '\n';
+    std::cout << "  telemetry_bytes_accepted: "
+              << transport_stats.bytes_accepted << '\n';
     std::cout << "  telemetry_transport_failures: "
               << transport_stats.failures << '\n';
 }
@@ -194,12 +244,20 @@ int main(int argc, char** argv) {
 
         printStartupSummary(config_path, config);
 
-        // ── Loopback transport: verifies the runtime's packets can be
-        // re-parsed by the receiving side (no serial / hardware). ──────────
-        hnu25::anti_drone::VisionTelemetryLoopbackTransport transport;
-
-        // ── --check mode: no camera, no frame loop ────────────────────────
+        // ── --check mode: no camera, no frame loop, no serial / /dev/* ─────
         if (check_only) {
+            std::cout << "Configured telemetry mode: "
+                      << hnu25::anti_drone::telemetryTransportModeName(
+                             config.telemetry.mode)
+                      << '\n';
+            if (config.telemetry.mode ==
+                hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+                std::cout << "  device: " << config.telemetry.device << '\n';
+                std::cout << "  baud_rate: " << config.telemetry.baud_rate
+                          << '\n';
+            }
+            std::cout << "External serial open: SKIPPED (--check)\n";
+
             std::cout << "Hik MVS build support: ";
 #if HNU25_HAS_MVS
             std::cout << "YES\n";
@@ -209,7 +267,9 @@ int main(int argc, char** argv) {
 
             // Internal loopback smoke: encode a minimal legal telemetry, send
             // it through the loopback, and confirm the receiver re-parses it
-            // with the same sequence.
+            // with the same sequence. Always uses the in-memory loopback (no
+            // serial / /dev/*) regardless of the configured mode.
+            hnu25::anti_drone::VisionTelemetryLoopbackTransport loopback;
             hnu25::anti_drone::VisionTelemetry sample;
             sample.version = hnu25::anti_drone::kVisionTelemetryVersion;
             sample.sequence = 1;
@@ -219,9 +279,9 @@ int main(int argc, char** argv) {
             bool loopback_pass = false;
             const auto sample_packet =
                 hnu25::anti_drone::encodeVisionTelemetry(sample);
-            if (transport.send(sample_packet)) {
+            if (loopback.send(sample_packet)) {
                 hnu25::anti_drone::VisionTelemetry received;
-                if (transport.popReceived(received) &&
+                if (loopback.popReceived(received) &&
                     received.sequence == 1) {
                     loopback_pass = true;
                 }
@@ -237,6 +297,27 @@ int main(int argc, char** argv) {
                          "passed.\n";
             return loopback_pass ? 0 : 8;
         }
+
+        // ── Runtime transport: LOOPBACK or SERIAL_DIAGNOSTIC ──────────────
+        auto transport = makeTelemetryTransport(config.telemetry);
+
+#if HNU25_HAS_SERIAL_TELEMETRY
+        // SERIAL_DIAGNOSTIC must open before the frame loop; an open failure
+        // is a startup error, not a silent mid-loop failure.
+        if (config.telemetry.mode ==
+            hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+            auto* serial_transport =
+                dynamic_cast<
+                    hnu25::anti_drone::VisionTelemetrySerialTransport*>(
+                        transport.get());
+            if (serial_transport == nullptr || !serial_transport->open()) {
+                std::cerr << "Failed to open telemetry serial device '"
+                          << config.telemetry.device << "'\n";
+                return 9;
+            }
+            std::cout << "Telemetry serial transport opened.\n";
+        }
+#endif
 
 #if HNU25_HAS_MVS
         // ── Map RuntimeCameraConfig onto the camera module ────────────────
@@ -278,6 +359,7 @@ int main(int argc, char** argv) {
         bool have_previous = false;
 
         int exit_code = 0;
+        int consecutive_transport_failures = 0;
 
         while (!g_stop_requested.load(std::memory_order_relaxed)) {
             hnu25::camera::Frame frame;
@@ -313,12 +395,21 @@ int main(int argc, char** argv) {
                     result, sequence, timestamp_us);
 
             // Produce the fixed 50-byte packet, then feed it through the
-            // loopback transport to confirm the runtime's output can be
-            // re-parsed by the receiving side. The loopback touches no
-            // serial port or real hardware (no control / fire semantics).
+            // configured transport (loopback or diagnostic serial). The
+            // transport expresses only "send VisionTelemetry bytes" — no
+            // control / fire / gimbal semantics.
             const std::vector<std::uint8_t> packet =
                 hnu25::anti_drone::encodeVisionTelemetry(telemetry);
-            transport.send(packet);
+            if (transport->send(packet)) {
+                consecutive_transport_failures = 0;
+            } else if (++consecutive_transport_failures >=
+                       config.telemetry.max_consecutive_failures) {
+                std::cerr << "Telemetry transport failed "
+                          << consecutive_transport_failures
+                          << " consecutive times; stopping.\n";
+                exit_code = 10;
+                break;
+            }
 
             ++sequence;  // uint32_t rollover is acceptable.
             ++frame_index;
@@ -333,7 +424,7 @@ int main(int argc, char** argv) {
             if (state_changed || periodic) {
                 printFrameStatus(
                     frame_index, frame.frame_number, telemetry,
-                    transport.stats());
+                    transport->stats());
             }
 
             previous_track_state = telemetry.track_state;
@@ -344,6 +435,20 @@ int main(int argc, char** argv) {
         source.stop();
         std::cout << "Vision frame loop stopped.\n";
         std::cout << "Camera stopped.\n";
+
+#if HNU25_HAS_SERIAL_TELEMETRY
+        if (config.telemetry.mode ==
+            hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC) {
+            auto* serial_transport =
+                dynamic_cast<
+                    hnu25::anti_drone::VisionTelemetrySerialTransport*>(
+                        transport.get());
+            if (serial_transport != nullptr) {
+                serial_transport->close();
+            }
+        }
+#endif
+
         std::cout << "Anti-Drone Vision Application exited cleanly.\n";
         return exit_code;
 #else

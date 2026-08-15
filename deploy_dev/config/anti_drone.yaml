@@ -87,6 +87,25 @@ runtime:
   log_every_n_frames: 10
 
 # ------------------------------------------------------------
+# Vision telemetry transport
+#
+# How the production application delivers the fixed 50-byte
+# VisionTelemetry packet.
+#
+#   mode: "loopback"            in-memory self-check only (no serial access)
+#   mode: "serial_diagnostic"   forward over a real serial device, for a
+#                               read-only diagnostic receiver
+#
+# This is a diagnostic / result transport only. It does NOT map onto any
+# control / fire / gimbal / actuator command.
+telemetry:
+  mode: "loopback"
+  device: ""
+  baud_rate: 115200
+  max_consecutive_failures: 5
+  flush_after_write: false
+
+# ------------------------------------------------------------
 # Camera / PnP calibration
 #
 # Fill these values only after real camera intrinsic/extrinsic

@@ -580,6 +580,116 @@ void testZeroPredictionHorizonValid() {
     check(config.prediction.horizon_s == 0.0, "horizon_s == 0.0");
 }
 
+// Test 20: an illegal telemetry mode must throw std::runtime_error.
+void testInvalidTelemetryMode() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  mode: \"bogus\"\n";
+
+    const auto path = writeTempYaml("telemetry_mode", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "illegal telemetry mode throws std::runtime_error");
+}
+
+// Test 21: an illegal baud rate must throw std::runtime_error.
+void testInvalidTelemetryBaud() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  baud_rate: 12345\n";
+
+    const auto path = writeTempYaml("telemetry_baud", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "illegal telemetry baud_rate throws std::runtime_error");
+}
+
+// Test 22: SERIAL_DIAGNOSTIC with an empty device must throw.
+void testSerialDiagnosticEmptyDevice() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  mode: \"serial_diagnostic\"\n"
+        "  device: \"\"\n";
+
+    const auto path = writeTempYaml("telemetry_empty_device", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "serial_diagnostic with empty device throws");
+}
+
+// Test 23: max_consecutive_failures <= 0 must throw.
+void testInvalidTelemetryMaxFailures() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  max_consecutive_failures: 0\n";
+
+    const auto path = writeTempYaml("telemetry_max_failures", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "max_consecutive_failures <= 0 throws");
+}
+
+// Test 24: a valid SERIAL_DIAGNOSTIC config loads with every field set.
+void testSerialDiagnosticLoad() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.55\n"
+        "\n"
+        "telemetry:\n"
+        "  mode: \"serial_diagnostic\"\n"
+        "  device: \"/dev/ttyUSB0\"\n"
+        "  baud_rate: 57600\n"
+        "  max_consecutive_failures: 7\n"
+        "  flush_after_write: true\n";
+
+    const auto path = writeTempYaml("telemetry_serial", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    check(config.telemetry.mode ==
+              hnu25::anti_drone::TelemetryTransportMode::SERIAL_DIAGNOSTIC,
+          "telemetry mode == SERIAL_DIAGNOSTIC");
+    check(config.telemetry.device == "/dev/ttyUSB0",
+          "telemetry device == /dev/ttyUSB0");
+    check(config.telemetry.baud_rate == 57600, "telemetry baud_rate == 57600");
+    check(config.telemetry.max_consecutive_failures == 7,
+          "telemetry max_consecutive_failures == 7");
+    check(config.telemetry.flush_after_write == true,
+          "telemetry flush_after_write == true");
+}
+
 }  // namespace
 
 int main() {
@@ -607,6 +717,11 @@ int main() {
         {"prediction wrong node type", testPredictionWrongNodeType},
         {"invalid prediction horizon", testInvalidPredictionHorizon},
         {"zero prediction horizon valid", testZeroPredictionHorizonValid},
+        {"invalid telemetry mode", testInvalidTelemetryMode},
+        {"invalid telemetry baud", testInvalidTelemetryBaud},
+        {"serial diagnostic empty device", testSerialDiagnosticEmptyDevice},
+        {"invalid telemetry max failures", testInvalidTelemetryMaxFailures},
+        {"serial diagnostic load", testSerialDiagnosticLoad},
     };
 
     for (const auto& c : cases) {

@@ -226,6 +226,42 @@ void validateRuntimeConfig(const AntiDroneRuntimeConfig& config) {
     }
 }
 
+// The serial transport delegates baud-rate handling to hnu25::SerialPort,
+// which supports exactly these five rates. Rejecting anything else here fails
+// fast at startup instead of at first open.
+void validateTelemetryConfig(const TelemetryTransportConfig& config) {
+    switch (config.baud_rate) {
+        case 9600:
+        case 19200:
+        case 38400:
+        case 57600:
+        case 115200:
+            break;
+        default:
+            fail("telemetry.baud_rate must be one of "
+                 "9600, 19200, 38400, 57600, 115200");
+    }
+    if (config.max_consecutive_failures < 1) {
+        fail("telemetry.max_consecutive_failures must be >= 1");
+    }
+    if (config.mode == TelemetryTransportMode::SERIAL_DIAGNOSTIC &&
+        config.device.empty()) {
+        fail("telemetry.device must be non-empty for SERIAL_DIAGNOSTIC mode");
+    }
+}
+
+TelemetryTransportMode telemetryTransportModeFromString(
+    const std::string& value) {
+    if (value == "loopback") {
+        return TelemetryTransportMode::LOOPBACK;
+    }
+    if (value == "serial_diagnostic") {
+        return TelemetryTransportMode::SERIAL_DIAGNOSTIC;
+    }
+    throw std::runtime_error(
+        "telemetry.mode must be \"loopback\" or \"serial_diagnostic\"");
+}
+
 // Reads a root-level 3x3 matrix expressed as a row-major YAML sequence of
 // exactly 9 finite doubles. This mirrors the original project's Eigen::RowMajor
 // semantics: values[0..2] are row 0, values[3..5] row 1, values[6..8] row 2.
@@ -340,6 +376,16 @@ std::optional<CalibrationConfig> loadCalibrationConfig(
 }
 
 }  // namespace
+
+const char* telemetryTransportModeName(TelemetryTransportMode mode) noexcept {
+    switch (mode) {
+        case TelemetryTransportMode::LOOPBACK:
+            return "LOOPBACK";
+        case TelemetryTransportMode::SERIAL_DIAGNOSTIC:
+            return "SERIAL_DIAGNOSTIC";
+    }
+    return "UNKNOWN";
+}
 
 AntiDroneConfig loadAntiDroneConfig(
     const std::filesystem::path& path) {
@@ -500,6 +546,29 @@ AntiDroneConfig loadAntiDroneConfig(
     }
 
     validateRuntimeConfig(config.runtime);
+
+    // ── telemetry (optional) ──────────────────────────────────────────────
+    if (const YAML::Node tel = root["telemetry"]) {
+        if (!tel.IsMap()) {
+            throw std::runtime_error("telemetry must be a mapping");
+        }
+        TelemetryTransportConfig& telemetry = config.telemetry;
+        if (const YAML::Node mode = tel["mode"]) {
+            telemetry.mode =
+                telemetryTransportModeFromString(mode.as<std::string>());
+        }
+        telemetry.device =
+            tel["device"].as<std::string>(telemetry.device);
+        telemetry.baud_rate =
+            tel["baud_rate"].as<int>(telemetry.baud_rate);
+        telemetry.max_consecutive_failures =
+            tel["max_consecutive_failures"].as<int>(
+                telemetry.max_consecutive_failures);
+        telemetry.flush_after_write =
+            tel["flush_after_write"].as<bool>(telemetry.flush_after_write);
+    }
+
+    validateTelemetryConfig(config.telemetry);
 
     return config;
 }
