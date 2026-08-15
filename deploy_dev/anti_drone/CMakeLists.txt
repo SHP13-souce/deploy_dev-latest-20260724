@@ -145,64 +145,59 @@ target_link_libraries(
     opencv_core
 )
 
-# Diagnostic serial transport. This is kept separate from the anti_drone core
-# library because it links the `communication` module, which is only built when
-# BUILD_APPLICATIONS is enabled. The core anti_drone library must not depend on
-# communication.
-if(BUILD_APPLICATIONS)
-    add_library(anti_drone_telemetry_serial STATIC
-        vision_telemetry_serial_transport.cpp
-    )
+# Diagnostic serial transport. Built unconditionally so it is available even
+# when BUILD_APPLICATIONS=OFF. It reuses the existing SerialPort implementation
+# (communication/serial_port.cpp) directly as a source, rather than linking the
+# `communication` target, which is only defined when BUILD_APPLICATIONS=ON.
+# Only the serial-port wrapper is reused — NOT sp_protocol.
+add_library(
+    anti_drone_telemetry_serial STATIC
+    vision_telemetry_serial_transport.cpp
+    ${CMAKE_SOURCE_DIR}/communication/serial_port.cpp
+)
 
-    target_include_directories(
-        anti_drone_telemetry_serial
-        PUBLIC
-        ${CMAKE_SOURCE_DIR}
-        ${OpenCV_INCLUDE_DIRS}
-    )
+target_include_directories(
+    anti_drone_telemetry_serial
+    PUBLIC
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/communication
+)
 
-    target_link_libraries(
-        anti_drone_telemetry_serial
-        PUBLIC
-        anti_drone
-        communication
-    )
+target_link_libraries(
+    anti_drone_telemetry_serial
+    PUBLIC
+    anti_drone
+)
 
-    target_compile_definitions(
-        anti_drone_telemetry_serial
-        PUBLIC
-        HNU25_HAS_SERIAL_TELEMETRY=1
-    )
+target_compile_definitions(
+    anti_drone_telemetry_serial
+    PUBLIC
+    HNU25_HAS_SERIAL_TELEMETRY=1
+)
 
-    target_link_libraries(
-        anti_drone_app
-        PRIVATE
-        anti_drone_telemetry_serial
-    )
+target_link_libraries(
+    anti_drone_app
+    PRIVATE
+    anti_drone_telemetry_serial
+)
 
-    add_executable(
-        anti_drone_vision_telemetry_receiver
-        vision_telemetry_receiver.cpp
-    )
+add_executable(
+    anti_drone_vision_telemetry_receiver
+    vision_telemetry_receiver.cpp
+)
 
-    target_include_directories(
-        anti_drone_vision_telemetry_receiver
-        PRIVATE
-        ${CMAKE_SOURCE_DIR}
-        ${OpenCV_INCLUDE_DIRS}
-    )
+target_include_directories(
+    anti_drone_vision_telemetry_receiver
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/communication
+    ${OpenCV_INCLUDE_DIRS}
+)
 
-    target_link_libraries(
-        anti_drone_vision_telemetry_receiver
-        PRIVATE
-        anti_drone
-        communication
-        opencv_core
-    )
-else()
-    target_compile_definitions(
-        anti_drone_app
-        PRIVATE
-        HNU25_HAS_SERIAL_TELEMETRY=0
-    )
-endif()
+target_link_libraries(
+    anti_drone_vision_telemetry_receiver
+    PRIVATE
+    anti_drone
+    anti_drone_telemetry_serial
+    opencv_core
+)

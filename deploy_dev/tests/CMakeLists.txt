@@ -305,7 +305,6 @@ add_test(
     COMMAND anti_drone_vision_telemetry_stream_test
 )
 
-if(BUILD_APPLICATIONS)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 add_executable(
     anti_drone_vision_telemetry_serial_integration_test
@@ -316,6 +315,7 @@ target_link_libraries(
     anti_drone_vision_telemetry_serial_integration_test
     PRIVATE
     anti_drone_telemetry_serial
+    anti_drone
     opencv_core
 )
 
@@ -325,6 +325,7 @@ add_test(
 )
 endif()
 
+if(BUILD_APPLICATIONS)
 add_executable(detector_benchmark detector_benchmark.cpp)
 target_link_libraries(detector_benchmark PRIVATE detection opencv_core opencv_videoio)
 
