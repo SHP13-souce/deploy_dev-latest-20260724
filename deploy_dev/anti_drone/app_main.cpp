@@ -640,10 +640,6 @@ int main(int argc, char** argv) {
                 if (key == 'q' || key == 'Q' || key == 27) {
                     g_stop_requested.store(true, std::memory_order_relaxed);
                 }
-                if (cv::getWindowProperty(
-                        preview_window_name, cv::WND_PROP_VISIBLE) < 1.0) {
-                    g_stop_requested.store(true, std::memory_order_relaxed);
-                }
             }
         }
 
