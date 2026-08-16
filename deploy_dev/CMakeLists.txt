@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ─── Find packages ──────────────────────────────────────────────────────────
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d videoio)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d videoio highgui)
 find_package(yaml-cpp REQUIRED)
 find_package(Threads REQUIRED)
 
