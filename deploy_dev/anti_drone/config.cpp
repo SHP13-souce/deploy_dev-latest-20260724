@@ -122,6 +122,44 @@ void validateTraditionalDetectorConfig(
         fail("morphology_close_iterations must be >= 0");
     }
 
+    // ── Concentric-ring verification ──────────────────────────────────────
+    if (config.ring_warp_size < 64) {
+        fail("ring_warp_size must be >= 64");
+    }
+    if (config.ring_radial_bins < 8) {
+        fail("ring_radial_bins must be >= 8");
+    }
+    if (!std::isfinite(config.ring_red_low) ||
+        !std::isfinite(config.ring_red_high)) {
+        fail("ring_red_low / ring_red_high must be finite");
+    }
+    if (!(config.ring_red_low >= 0.0 && config.ring_red_high <= 1.0 &&
+          config.ring_red_low < config.ring_red_high)) {
+        fail("must satisfy 0 <= ring_red_low < ring_red_high <= 1");
+    }
+    if (!std::isfinite(config.ring_center_radius_ratio) ||
+        !(config.ring_center_radius_ratio > 0.0) ||
+        !(config.ring_center_radius_ratio < 0.5)) {
+        fail("ring_center_radius_ratio must be within (0, 0.5)");
+    }
+    if (!std::isfinite(config.ring_center_red_min) ||
+        config.ring_center_red_min < 0.0 ||
+        config.ring_center_red_min > 1.0) {
+        fail("ring_center_red_min must be within [0, 1]");
+    }
+    if (config.ring_min_transitions < 1) {
+        fail("ring_min_transitions must be >= 1");
+    }
+    if (!std::isfinite(config.ring_outer_red_max) ||
+        config.ring_outer_red_max < 0.0 ||
+        config.ring_outer_red_max > 1.0) {
+        fail("ring_outer_red_max must be within [0, 1]");
+    }
+    if (!std::isfinite(config.min_ring_score) ||
+        config.min_ring_score < 0.0 || config.min_ring_score > 1.0) {
+        fail("min_ring_score must be within [0, 1]");
+    }
+
     // ── Weights ───────────────────────────────────────────────────────────
     if (!std::isfinite(config.geometry_weight) ||
         config.geometry_weight < 0.0F) {
@@ -130,6 +168,14 @@ void validateTraditionalDetectorConfig(
     if (!std::isfinite(config.color_weight) ||
         config.color_weight < 0.0F) {
         fail("color_weight must be finite and >= 0");
+    }
+    if (!std::isfinite(config.ring_weight) || config.ring_weight < 0.0F) {
+        fail("ring_weight must be finite and >= 0");
+    }
+    if (config.geometry_weight <= 0.0F && config.color_weight <= 0.0F &&
+        config.ring_weight <= 0.0F) {
+        fail("at least one of geometry_weight / color_weight / ring_weight "
+             "must be > 0");
     }
 
     // ── Score / NMS ───────────────────────────────────────────────────────
@@ -531,6 +577,33 @@ AntiDroneConfig loadAntiDroneConfig(
         node["max_bullseye_offset_ratio"].as<double>(
             td.max_bullseye_offset_ratio);
 
+    // ── Production hard gates ─────────────────────────────────────────────
+    td.require_bullseye =
+        node["require_bullseye"].as<bool>(td.require_bullseye);
+    td.require_valid_corners =
+        node["require_valid_corners"].as<bool>(td.require_valid_corners);
+
+    // ── Concentric-ring verification ─────────────────────────────────────
+    td.ring_pattern_enabled =
+        node["ring_pattern_enabled"].as<bool>(td.ring_pattern_enabled);
+    td.ring_warp_size =
+        node["ring_warp_size"].as<int>(td.ring_warp_size);
+    td.ring_radial_bins =
+        node["ring_radial_bins"].as<int>(td.ring_radial_bins);
+    td.ring_red_low = node["ring_red_low"].as<double>(td.ring_red_low);
+    td.ring_red_high = node["ring_red_high"].as<double>(td.ring_red_high);
+    td.ring_center_radius_ratio =
+        node["ring_center_radius_ratio"].as<double>(
+            td.ring_center_radius_ratio);
+    td.ring_center_red_min =
+        node["ring_center_red_min"].as<double>(td.ring_center_red_min);
+    td.ring_min_transitions =
+        node["ring_min_transitions"].as<int>(td.ring_min_transitions);
+    td.ring_outer_red_max =
+        node["ring_outer_red_max"].as<double>(td.ring_outer_red_max);
+    td.min_ring_score =
+        node["min_ring_score"].as<double>(td.min_ring_score);
+
     // ── Morphology ───────────────────────────────────────────────────────
     td.morphology_kernel_size =
         node["morphology_kernel_size"].as<int>(td.morphology_kernel_size);
@@ -544,6 +617,7 @@ AntiDroneConfig loadAntiDroneConfig(
     // ── Scoring ──────────────────────────────────────────────────────────
     td.geometry_weight = node["geometry_weight"].as<float>(td.geometry_weight);
     td.color_weight = node["color_weight"].as<float>(td.color_weight);
+    td.ring_weight = node["ring_weight"].as<float>(td.ring_weight);
     td.min_cv_score = node["min_cv_score"].as<float>(td.min_cv_score);
 
     // ── Candidate deduplication ──────────────────────────────────────────

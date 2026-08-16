@@ -4,6 +4,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -24,14 +25,28 @@ void check(bool condition, const std::string& message) {
 // ── Synthetic images (no external asset files) ─────────────────────────────
 
 // 640x480 green background, 160 px white square board centered at (320, 240),
-// with a red bullseye. This is the same geometry the detector test family
-// relies on and must not be read from disk.
+// with a red/white concentric-ring bullseye (the real competition target). The
+// production detector now requires the concentric structure, so a single solid
+// red dot would be rejected and break the downstream PnP / tracker tests.
 cv::Mat makeTargetImage() {
     cv::Mat image(480, 640, CV_8UC3, cv::Scalar(0, 255, 0));  // green BGR
     cv::rectangle(image, cv::Point(240, 160), cv::Point(400, 320),
                   cv::Scalar(255, 255, 255), cv::FILLED);  // white board
-    cv::circle(image, cv::Point(320, 240), 28,
-               cv::Scalar(0, 0, 255), cv::FILLED);  // red bullseye
+
+    const cv::Point center(320, 240);
+    const int half = 80;
+    const cv::Scalar red(0, 0, 255);
+    const cv::Scalar white(255, 255, 255);
+    cv::circle(image, center, static_cast<int>(std::lround(0.72 * half)), red,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.60 * half)), white,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.50 * half)), red,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.38 * half)), white,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.24 * half)), red,
+               cv::FILLED);
     return image;
 }
 

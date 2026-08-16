@@ -58,13 +58,16 @@ struct TraditionalDetectorConfig {
     // -------------------- Bullseye validation --------------------
 
     // Red pixels inside candidate board mask / candidate board mask area.
-    double min_red_area_ratio = 0.003;
+    //
+    // The real 50 cm x 50 cm target carries substantial red area from its
+    // concentric rings, so this is far above the original 0.003. It is a
+    // loose bullseye gate only: the concentric-ring verifier below is what
+    // actually rejects false positives.
+    double min_red_area_ratio = 0.02;
 
     // Distance between detected bullseye center and board center,
     // normalized by the candidate bounding-box diagonal.
-    //
-    // This is deliberately loose for the initial implementation.
-    double max_bullseye_offset_ratio = 0.25;
+    double max_bullseye_offset_ratio = 0.15;
 
 
     // -------------------- Morphology --------------------
@@ -74,18 +77,71 @@ struct TraditionalDetectorConfig {
     int morphology_close_iterations = 2;
 
 
+    // -------------------- Production hard gates --------------------
+
+    // When true, a candidate whose bullseye is invalid is rejected outright.
+    // Disable for geometry-only evaluation of the white-board stage.
+    bool require_bullseye = true;
+
+    // When true, a candidate without a usable ordered quadrilateral
+    // (corners_valid == false) is rejected outright. Disable for
+    // geometry-only evaluation. The concentric-ring verifier needs real
+    // corners to perspective-normalize the board.
+    bool require_valid_corners = true;
+
+
+    // -------------------- Concentric-ring verification --------------------
+
+    // Master switch for the Stage 2 ring verifier. When false, the detector
+    // behaves as a geometry + bullseye-only detector (no warp / radial model).
+    bool ring_pattern_enabled = true;
+
+    // Side length of the canonical square the candidate board is warped to
+    // before the radial profile is measured. Must be >= 64.
+    int ring_warp_size = 192;
+
+    // Number of radial annulus bins for the red-fraction profile. Must be
+    // >= 8.
+    int ring_radial_bins = 48;
+
+    // Hysteresis thresholds for classifying a smoothed red fraction as RED or
+    // NON_RED. Fractions in (low, high) are UNKNOWN and do not create a
+    // transition. Must satisfy 0 <= ring_red_low < ring_red_high <= 1.
+    double ring_red_low = 0.25;
+    double ring_red_high = 0.55;
+
+    // Center red evidence is measured over radius <=
+    // ring_center_radius_ratio * N. The center must be mostly red.
+    double ring_center_radius_ratio = 0.08;
+    double ring_center_red_min = 0.50;
+
+    // Minimum number of RED / NON_RED transitions in the compressed radial
+    // profile. The real target is R W R W R from the center outward, i.e.
+    // at least 4 transitions. This is the core anti-false-positive check.
+    int ring_min_transitions = 4;
+
+    // Non-red evidence over 0.38*N <= r <= 0.45*N. A red fraction above this
+    // lowers the ring score (soft penalty, not a hard gate).
+    double ring_outer_red_max = 0.40;
+
+    // Minimum ring score for a candidate to survive Stage 2.
+    double min_ring_score = 0.60;
+
+
     // -------------------- Scoring --------------------
 
-    // These two weights will later combine the geometry and color
-    // evidence into TargetObservation::cv_score.
-    //
-    // Defaults intentionally use equal weights until real data exists.
+    // Weights combining geometry, color, and concentric-ring evidence into
+    // TargetObservation::cv_score. The sum is normalized at runtime, so the
+    // weights need not add to 1, but at least one must be > 0 (enforced by
+    // config validation). The ring weight dominates production confidence
+    // because the ring structure is the strongest target discriminator.
 
-    float geometry_weight = 0.50F;
-    float color_weight = 0.50F;
+    float geometry_weight = 0.20F;
+    float color_weight = 0.25F;
+    float ring_weight = 0.55F;
 
     // Minimum CV confidence required for a candidate to survive.
-    float min_cv_score = 0.55F;
+    float min_cv_score = 0.65F;
 
 
     // -------------------- Candidate deduplication --------------------

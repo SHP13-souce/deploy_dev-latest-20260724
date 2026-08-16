@@ -36,14 +36,27 @@ double euclidean(const cv::Point2f& a, const cv::Point2f& b) {
     return std::sqrt(dx * dx + dy * dy);
 }
 
-// Paint one target: a white board plus a red bullseye.
-void drawTarget(cv::Mat& image,
-                const cv::Point& tl,
-                const cv::Point& br,
-                const cv::Point& red_center,
-                int red_radius) {
+// Paint one target: a white board with a red/white concentric-ring bullseye
+// (the real 50 cm x 50 cm competition target). Ring radii are derived from the
+// board size so the target scales with board size.
+void drawTarget(cv::Mat& image, const cv::Point& tl, const cv::Point& br) {
     cv::rectangle(image, tl, br, cv::Scalar(255, 255, 255), cv::FILLED);
-    cv::circle(image, red_center, red_radius, cv::Scalar(0, 0, 255),
+
+    const cv::Point center((tl.x + br.x) / 2, (tl.y + br.y) / 2);
+    const int half = std::max(1, (br.x - tl.x) / 2);
+
+    const cv::Scalar red(0, 0, 255);
+    const cv::Scalar white(255, 255, 255);
+
+    cv::circle(image, center, static_cast<int>(std::lround(0.72 * half)), red,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.60 * half)), white,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.50 * half)), red,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.38 * half)), white,
+               cv::FILLED);
+    cv::circle(image, center, static_cast<int>(std::lround(0.24 * half)), red,
                cv::FILLED);
 }
 
@@ -51,8 +64,7 @@ void drawTarget(cv::Mat& image,
 // bullseye.
 void testSingleTarget() {
     cv::Mat image = makeBackground();
-    drawTarget(image, cv::Point(120, 140), cv::Point(280, 300),
-               cv::Point(200, 220), 28);
+    drawTarget(image, cv::Point(120, 140), cv::Point(280, 300));
 
     hnu25::anti_drone::TraditionalTargetDetector detector;
     const auto result = detector.detect(image);
@@ -68,11 +80,9 @@ void testSingleTarget() {
 cv::Mat makeTwoSeparatedTargets() {
     cv::Mat image = makeBackground();
     // Left target.
-    drawTarget(image, cv::Point(60, 170), cv::Point(200, 310),
-               cv::Point(130, 240), 24);
+    drawTarget(image, cv::Point(60, 170), cv::Point(200, 310));
     // Right target.
-    drawTarget(image, cv::Point(400, 170), cv::Point(540, 310),
-               cv::Point(470, 240), 24);
+    drawTarget(image, cv::Point(400, 170), cv::Point(540, 310));
     return image;
 }
 
