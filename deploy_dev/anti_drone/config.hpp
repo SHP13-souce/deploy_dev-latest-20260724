@@ -70,6 +70,12 @@ struct AntiDroneRuntimeConfig {
     // Status lines are printed every N valid frames (and always on state
     // changes). Must be >= 1.
     int log_every_n_frames = 10;
+
+    // When true, the production app opens a real-time preview window and
+    // overlays the current detector output on a clone of each frame. The
+    // processing chain and telemetry are unaffected. Default false keeps the
+    // app headless (no DISPLAY required).
+    bool show_preview = false;
 };
 
 // Gimbal-following behaviour for the production entry point. This covers only

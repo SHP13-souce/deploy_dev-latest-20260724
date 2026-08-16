@@ -167,6 +167,8 @@ target_link_libraries(
     anti_drone
     camera
     opencv_core
+    opencv_imgproc
+    opencv_highgui
 )
 
 # Diagnostic serial transport. Built unconditionally. It reuses the migrated

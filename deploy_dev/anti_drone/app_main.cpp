@@ -13,6 +13,9 @@
 #include "camera/frame.hpp"
 #include "camera/hik_frame_source.hpp"
 
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -23,6 +26,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -214,6 +218,98 @@ void printFrameStatus(
               << transport_stats.failures << '\n';
 }
 
+// Draws the real-time visual debugging overlay onto `display`. `display` is
+// already a clone of the raw frame; the raw frame itself is never modified.
+// This is a side-channel visualisation only: it recomputes no detection, PnP,
+// tracking, or prediction state, and reuses `result` / `telemetry` exactly as
+// produced by the main processing chain.
+void drawPreviewOverlay(
+    cv::Mat& display,
+    const hnu25::anti_drone::DiagnosticFrameProcessorResult& result,
+    const hnu25::anti_drone::VisionTelemetry& telemetry,
+    double fps) {
+    const cv::Scalar status_color(0, 255, 0);
+    const cv::Scalar invalid_color(0, 0, 255);
+    const cv::Scalar box_color(0, 255, 0);
+    const cv::Scalar corner_color(0, 255, 255);
+    const cv::Scalar center_color(0, 255, 0);
+    const cv::Scalar bullseye_color(0, 0, 255);
+
+    int line_y = 25;
+    const int line_step = 25;
+
+    {
+        std::ostringstream text;
+        text << "FPS: " << std::fixed << std::setprecision(1) << fps;
+        cv::putText(display, text.str(), cv::Point(10, line_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2);
+        line_y += line_step;
+    }
+    {
+        std::ostringstream text;
+        text << "Detections: " << result.observations.size();
+        cv::putText(display, text.str(), cv::Point(10, line_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2);
+        line_y += line_step;
+    }
+    {
+        std::ostringstream text;
+        text << "Track: "
+             << hnu25::anti_drone::trackStateName(telemetry.track_state);
+        cv::putText(display, text.str(), cv::Point(10, line_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2);
+        line_y += line_step;
+    }
+    if (telemetry.vision_valid) {
+        std::ostringstream text;
+        text << "Yaw: " << std::fixed << std::setprecision(2)
+             << telemetry.yaw_rad << " rad  Pitch: " << std::setprecision(2)
+             << telemetry.pitch_rad << " rad";
+        cv::putText(display, text.str(), cv::Point(10, line_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2);
+    } else {
+        cv::putText(display, "Vision: INVALID", cv::Point(10, line_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, invalid_color, 2);
+    }
+
+    for (const auto& obs : result.observations) {
+        // Bounding box + CV score label.
+        cv::rectangle(display, obs.box, box_color, 2);
+        {
+            std::ostringstream text;
+            text << "CV " << std::fixed << std::setprecision(2) << obs.cv_score;
+            const int label_y = obs.box.y > 15 ? obs.box.y - 5 : 15;
+            cv::putText(display, text.str(), cv::Point(obs.box.x, label_y),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.55, box_color, 2);
+        }
+
+        // Ordered corner quadrilateral (TL -> TR -> BR -> BL -> TL).
+        if (obs.corners_valid) {
+            const auto p = [&obs](int i) { return cv::Point(obs.corners[i]); };
+            cv::line(display, p(0), p(1), corner_color, 2);
+            cv::line(display, p(1), p(2), corner_color, 2);
+            cv::line(display, p(2), p(3), corner_color, 2);
+            cv::line(display, p(3), p(0), corner_color, 2);
+            for (int i = 0; i < 4; ++i) {
+                cv::circle(display, p(i), 4, corner_color, -1);
+            }
+        }
+
+        // Geometric center: small crosshair.
+        const cv::Point center = cv::Point(obs.center);
+        cv::line(display, cv::Point(center.x - 5, center.y),
+                 cv::Point(center.x + 5, center.y), center_color, 1);
+        cv::line(display, cv::Point(center.x, center.y - 5),
+                 cv::Point(center.x, center.y + 5), center_color, 1);
+
+        // Bullseye center: distinct ring marker.
+        if (obs.bullseye_valid) {
+            cv::circle(display, cv::Point(obs.bullseye_center), 7,
+                       bullseye_color, 2);
+        }
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -358,6 +454,22 @@ int main(int argc, char** argv) {
         std::cout << "Camera started.\n";
         std::cout << "Vision frame loop started.\n";
 
+        // ── Optional real-time visual debug window (side-channel only) ─────
+        // Created only when runtime.show_preview is true; when false the app
+        // stays fully headless and never touches HighGUI.
+        const bool show_preview = config.runtime.show_preview;
+        const std::string preview_window_name = "Anti-Drone Vision";
+        if (show_preview) {
+            cv::namedWindow(preview_window_name, cv::WINDOW_NORMAL);
+            // Only the GUI window is resized; frame.image is never resized.
+            cv::resizeWindow(preview_window_name, 1280, 720);
+        }
+
+        // Measured preview FPS (steady_clock), refreshed once per second.
+        double preview_fps = 0.0;
+        std::uint64_t preview_fps_frames = 0;
+        auto preview_fps_start = std::chrono::steady_clock::now();
+
         const int frame_timeout_ms = config.camera.frame_timeout_ms;
         const int max_consecutive_timeouts =
             config.camera.max_consecutive_timeouts;
@@ -500,9 +612,45 @@ int main(int argc, char** argv) {
             previous_track_state = telemetry.track_state;
             previous_vision_valid = telemetry.vision_valid;
             have_previous = true;
+
+            // ── Optional real-time visual debug overlay ────────────────────
+            // Rendered on a clone of the raw frame, after processing and
+            // telemetry have already been produced and sent. frame.image is
+            // never mutated by the preview path.
+            if (show_preview) {
+                ++preview_fps_frames;
+                const auto preview_now = std::chrono::steady_clock::now();
+                const double preview_elapsed =
+                    std::chrono::duration<double>(
+                        preview_now - preview_fps_start)
+                        .count();
+                if (preview_elapsed >= 1.0) {
+                    preview_fps =
+                        static_cast<double>(preview_fps_frames) /
+                        preview_elapsed;
+                    preview_fps_frames = 0;
+                    preview_fps_start = preview_now;
+                }
+
+                cv::Mat display = frame.image.clone();
+                drawPreviewOverlay(display, result, telemetry, preview_fps);
+                cv::imshow(preview_window_name, display);
+
+                const int key = cv::waitKey(1);
+                if (key == 'q' || key == 'Q' || key == 27) {
+                    g_stop_requested.store(true, std::memory_order_relaxed);
+                }
+                if (cv::getWindowProperty(
+                        preview_window_name, cv::WND_PROP_VISIBLE) < 1.0) {
+                    g_stop_requested.store(true, std::memory_order_relaxed);
+                }
+            }
         }
 
         source.stop();
+        if (show_preview) {
+            cv::destroyAllWindows();
+        }
         std::cout << "Vision frame loop stopped.\n";
         std::cout << "Camera stopped.\n";
 
