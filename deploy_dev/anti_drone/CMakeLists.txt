@@ -107,6 +107,29 @@ target_link_libraries(
 )
 
 add_executable(
+    anti_drone_hik_live_preview
+    hik_live_preview.cpp
+)
+
+target_include_directories(
+    anti_drone_hik_live_preview
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    anti_drone_hik_live_preview
+    PRIVATE
+    anti_drone
+    camera
+    opencv_core
+    opencv_imgproc
+    opencv_imgcodecs
+    opencv_highgui
+)
+
+add_executable(
     anti_drone_sequence_preview
     sequence_preview.cpp
 )
