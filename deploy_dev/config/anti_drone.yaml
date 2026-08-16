@@ -18,16 +18,38 @@ traditional_detector:
   min_rectangularity: 0.55
   polygon_epsilon_ratio: 0.03
 
-  min_red_area_ratio: 0.003
-  max_bullseye_offset_ratio: 0.25
+  min_red_area_ratio: 0.02
+  max_bullseye_offset_ratio: 0.15
+
+  # Production hard gates. Both must hold (in addition to the cheap geometry
+  # gate and the ring verifier) for a candidate to survive. Set either to
+  # false only for isolated geometry / bullseye evaluation.
+  require_bullseye: true
+  require_valid_corners: true
+
+  # Stage 2 concentric-ring verification. Warps the candidate board to a
+  # canonical square and checks the radial red/non-red alternation
+  # (R W R W R from the center out). This is what rejects the white monitor /
+  # white box / white board office false positives.
+  ring_pattern_enabled: true
+  ring_warp_size: 192
+  ring_radial_bins: 48
+  ring_red_low: 0.25
+  ring_red_high: 0.55
+  ring_center_radius_ratio: 0.08
+  ring_center_red_min: 0.50
+  ring_min_transitions: 4
+  ring_outer_red_max: 0.40
+  min_ring_score: 0.60
 
   morphology_kernel_size: 3
   morphology_open_iterations: 1
   morphology_close_iterations: 2
 
-  geometry_weight: 0.50
-  color_weight: 0.50
-  min_cv_score: 0.55
+  geometry_weight: 0.20
+  color_weight: 0.25
+  ring_weight: 0.55
+  min_cv_score: 0.65
 
   nms_iou_threshold: 0.40
 

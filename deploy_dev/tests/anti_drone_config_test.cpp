@@ -1108,6 +1108,141 @@ void testCalibrationResolutionHeightOnly() {
     check(threw, "height-only resolution throws");
 }
 
+// Test 45: concentric-ring config fields keep production defaults when absent.
+void testRingDefaults() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.65\n";
+
+    const auto path = writeTempYaml("ring_defaults", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& td = config.traditional_detector;
+    check(td.require_bullseye == true, "require_bullseye default == true");
+    check(td.require_valid_corners == true,
+          "require_valid_corners default == true");
+    check(td.ring_pattern_enabled == true,
+          "ring_pattern_enabled default == true");
+    check(td.ring_warp_size == 192, "ring_warp_size default == 192");
+    check(td.ring_radial_bins == 48, "ring_radial_bins default == 48");
+    check(approx(td.ring_red_low, 0.25), "ring_red_low default == 0.25");
+    check(approx(td.ring_red_high, 0.55), "ring_red_high default == 0.55");
+    check(approx(td.ring_center_radius_ratio, 0.08),
+          "ring_center_radius_ratio default == 0.08");
+    check(approx(td.ring_center_red_min, 0.50),
+          "ring_center_red_min default == 0.50");
+    check(td.ring_min_transitions == 4, "ring_min_transitions default == 4");
+    check(approx(td.ring_outer_red_max, 0.40),
+          "ring_outer_red_max default == 0.40");
+    check(approx(td.min_ring_score, 0.60), "min_ring_score default == 0.60");
+    check(approx(td.ring_weight, 0.55), "ring_weight default == 0.55");
+}
+
+// Test 46: concentric-ring overrides load through the real production API.
+void testRingOverrideLoad() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  min_cv_score: 0.65\n"
+        "  require_bullseye: false\n"
+        "  require_valid_corners: false\n"
+        "  ring_pattern_enabled: false\n"
+        "  ring_warp_size: 128\n"
+        "  ring_radial_bins: 24\n"
+        "  ring_red_low: 0.20\n"
+        "  ring_red_high: 0.60\n"
+        "  ring_center_radius_ratio: 0.10\n"
+        "  ring_center_red_min: 0.45\n"
+        "  ring_min_transitions: 3\n"
+        "  ring_outer_red_max: 0.35\n"
+        "  min_ring_score: 0.55\n"
+        "  ring_weight: 0.4\n";
+
+    const auto path = writeTempYaml("ring_override", yaml);
+    const auto config = hnu25::anti_drone::loadAntiDroneConfig(path);
+    std::filesystem::remove(path);
+
+    const auto& td = config.traditional_detector;
+    check(td.require_bullseye == false, "require_bullseye overridden to false");
+    check(td.require_valid_corners == false,
+          "require_valid_corners overridden to false");
+    check(td.ring_pattern_enabled == false,
+          "ring_pattern_enabled overridden to false");
+    check(td.ring_warp_size == 128, "ring_warp_size == 128");
+    check(td.ring_radial_bins == 24, "ring_radial_bins == 24");
+    check(approx(td.ring_red_low, 0.20), "ring_red_low == 0.20");
+    check(approx(td.ring_red_high, 0.60), "ring_red_high == 0.60");
+    check(approx(td.ring_center_radius_ratio, 0.10),
+          "ring_center_radius_ratio == 0.10");
+    check(approx(td.ring_center_red_min, 0.45), "ring_center_red_min == 0.45");
+    check(td.ring_min_transitions == 3, "ring_min_transitions == 3");
+    check(approx(td.ring_outer_red_max, 0.35), "ring_outer_red_max == 0.35");
+    check(approx(td.min_ring_score, 0.55), "min_ring_score == 0.55");
+    check(approx(td.ring_weight, 0.40), "ring_weight == 0.40");
+}
+
+// Test 47: each invalid concentric-ring value must throw std::runtime_error.
+void testInvalidRingValues() {
+    const char* fields[] = {
+        "ring_warp_size: 63\n",
+        "ring_radial_bins: 7\n",
+        "ring_red_low: -0.1\n",
+        "ring_red_low: 0.6\n",   // low >= high (high stays default 0.55)
+        "ring_red_high: 1.1\n",
+        "ring_center_radius_ratio: 0.0\n",
+        "ring_center_radius_ratio: 0.5\n",
+        "ring_center_red_min: -0.1\n",
+        "ring_center_red_min: 1.1\n",
+        "ring_min_transitions: 0\n",
+        "ring_outer_red_max: -0.1\n",
+        "ring_outer_red_max: 1.1\n",
+        "min_ring_score: -0.1\n",
+        "min_ring_score: 1.1\n",
+        "ring_weight: -0.1\n",
+    };
+
+    int index = 0;
+    for (const char* field : fields) {
+        const std::string yaml =
+            std::string("traditional_detector:\n"
+                        "  min_cv_score: 0.65\n"
+                        "  ") +
+            field;
+
+        const auto path =
+            writeTempYaml("invalid_ring_" + std::to_string(index), yaml);
+        bool threw = false;
+        try {
+            hnu25::anti_drone::loadAntiDroneConfig(path);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        std::filesystem::remove(path);
+
+        check(threw, std::string("invalid ring value throws: ") + field);
+        ++index;
+    }
+}
+
+// Test 48: all three weights zero must throw (normalization would divide by 0).
+void testAllWeightsZeroRejected() {
+    const std::string yaml =
+        "traditional_detector:\n"
+        "  geometry_weight: 0.0\n"
+        "  color_weight: 0.0\n"
+        "  ring_weight: 0.0\n";
+
+    const auto path = writeTempYaml("zero_weights", yaml);
+    bool threw = false;
+    try {
+        hnu25::anti_drone::loadAntiDroneConfig(path);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    std::filesystem::remove(path);
+    check(threw, "all-zero weights throw std::runtime_error");
+}
+
 }  // namespace
 
 int main() {
@@ -1160,6 +1295,10 @@ int main() {
         {"calibration resolution valid", testCalibrationResolutionValid},
         {"calibration resolution width only", testCalibrationResolutionWidthOnly},
         {"calibration resolution height only", testCalibrationResolutionHeightOnly},
+        {"ring defaults", testRingDefaults},
+        {"ring override load", testRingOverrideLoad},
+        {"invalid ring values", testInvalidRingValues},
+        {"all-zero weights rejected", testAllWeightsZeroRejected},
     };
 
     for (const auto& c : cases) {

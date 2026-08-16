@@ -38,12 +38,17 @@ double euclidean(const cv::Point2f& a, const cv::Point2f& b) {
 }
 
 // A detector that only scores geometry evidence. This keeps the geometry
-// test focused on white-shape detection regardless of the (unpainted) red
-// bullseye stage.
+// test focused on white-shape detection regardless of the red bullseye /
+// concentric-ring verification stages: the ring verifier and the bullseye /
+// corner hard gates are all disabled, and only geometry contributes weight.
 hnu25::anti_drone::TraditionalTargetDetector makeGeometryOnlyDetector() {
     hnu25::anti_drone::TraditionalDetectorConfig config;
     config.geometry_weight = 1.0F;
     config.color_weight = 0.0F;
+    config.ring_weight = 0.0F;
+    config.require_bullseye = false;
+    config.require_valid_corners = false;
+    config.ring_pattern_enabled = false;
     return hnu25::anti_drone::TraditionalTargetDetector(config);
 }
 

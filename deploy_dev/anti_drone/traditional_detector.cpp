@@ -66,6 +66,213 @@ double intersectionOverUnion(const cv::Rect& a, const cv::Rect& b) {
     return std::clamp(intersection_area / union_area, 0.0, 1.0);
 }
 
+// Stage 2 concentric-ring verification. Perspective-normalizes the candidate
+// board quadrilateral into a canonical square, then measures the radial
+// red/non-red profile from the center. The real target is a 50 cm x 50 cm
+// white board with a RED / WHITE / RED / WHITE / RED concentric bullseye, so
+// from the center outward the profile must alternate at least
+// ring_min_transitions times and start with RED.
+//
+// Returns a score in [0, 1]; 0.0 means the concentric structure is
+// definitively absent (center not red, too few alternations, or leading
+// non-red), so the caller rejects the candidate.
+double computeRingScore(
+    const cv::Mat& bgr_image,
+    const std::array<cv::Point2f, 4>& corners,
+    const TraditionalDetectorConfig& config) {
+    const int N = std::max(64, config.ring_warp_size);
+    const int bins = std::max(8, config.ring_radial_bins);
+
+    // ── Perspective normalization (candidate quadrilateral only) ──────────
+    // Warp only the bounding box around the four corners, never the whole
+    // frame, so the cost stays proportional to candidate size.
+    const cv::Rect corners_rect = cv::boundingRect(
+        std::vector<cv::Point2f>(corners.begin(), corners.end())) &
+        cv::Rect(0, 0, bgr_image.cols, bgr_image.rows);
+    if (corners_rect.width < 4 || corners_rect.height < 4) {
+        return 0.0;
+    }
+
+    const cv::Mat roi = bgr_image(corners_rect);
+
+    std::vector<cv::Point2f> src(4);
+    const float ox = static_cast<float>(corners_rect.x);
+    const float oy = static_cast<float>(corners_rect.y);
+    for (int i = 0; i < 4; ++i) {
+        src[i] = cv::Point2f(corners[i].x - ox, corners[i].y - oy);
+    }
+
+    std::vector<cv::Point2f> dst(4);
+    dst[0] = cv::Point2f(0.0F, 0.0F);
+    dst[1] = cv::Point2f(static_cast<float>(N - 1), 0.0F);
+    dst[2] = cv::Point2f(static_cast<float>(N - 1), static_cast<float>(N - 1));
+    dst[3] = cv::Point2f(0.0F, static_cast<float>(N - 1));
+
+    const cv::Mat H = cv::getPerspectiveTransform(src, dst);
+    if (H.empty()) {
+        return 0.0;
+    }
+
+    cv::Mat warped;
+    cv::warpPerspective(roi, warped, H, cv::Size(N, N), cv::INTER_LINEAR);
+    if (warped.empty()) {
+        return 0.0;
+    }
+
+    // ── Canonical red mask (same HSV thresholds as Stage 1) ───────────────
+    cv::Mat hsv;
+    cv::cvtColor(warped, hsv, cv::COLOR_BGR2HSV);
+
+    cv::Mat red1;
+    cv::Mat red2;
+    cv::inRange(hsv,
+                cv::Scalar(config.red_hue_low_1, config.red_saturation_min,
+                           config.red_value_min),
+                cv::Scalar(config.red_hue_high_1, 255, 255), red1);
+    cv::inRange(hsv,
+                cv::Scalar(config.red_hue_low_2, config.red_saturation_min,
+                           config.red_value_min),
+                cv::Scalar(config.red_hue_high_2, 255, 255), red2);
+
+    cv::Mat red_mask;
+    cv::bitwise_or(red1, red2, red_mask);
+
+    // ── Radial annulus profile ────────────────────────────────────────────
+    const double center = (N - 1) * 0.5;
+    const double max_radius = 0.45 * N;
+    const double center_radius = config.ring_center_radius_ratio * N;
+    const double outer_inner = 0.38 * N;
+
+    std::vector<long long> red_count(bins, 0);
+    std::vector<long long> total_count(bins, 0);
+    long long center_red = 0;
+    long long center_total = 0;
+    long long outer_red = 0;
+    long long outer_total = 0;
+
+    for (int y = 0; y < N; ++y) {
+        const double dy = static_cast<double>(y) - center;
+        const uchar* red_row = red_mask.ptr<uchar>(y);
+        for (int x = 0; x < N; ++x) {
+            const double dx = static_cast<double>(x) - center;
+            const double r = std::sqrt(dx * dx + dy * dy);
+            if (r > max_radius) {
+                continue;
+            }
+
+            const bool is_red = red_row[x] != 0;
+            const int bin = std::min(
+                bins - 1, static_cast<int>(r / max_radius * bins));
+            ++total_count[bin];
+            if (is_red) {
+                ++red_count[bin];
+            }
+
+            if (r <= center_radius) {
+                ++center_total;
+                if (is_red) {
+                    ++center_red;
+                }
+            }
+            if (r >= outer_inner) {
+                ++outer_total;
+                if (is_red) {
+                    ++outer_red;
+                }
+            }
+        }
+    }
+
+    // ── Red fraction per bin, then 3-bin moving average ───────────────────
+    std::vector<double> fraction(bins, 0.0);
+    for (int i = 0; i < bins; ++i) {
+        if (total_count[i] > 0) {
+            fraction[i] = static_cast<double>(red_count[i]) /
+                          static_cast<double>(total_count[i]);
+        }
+    }
+
+    std::vector<double> smoothed(bins, 0.0);
+    for (int i = 0; i < bins; ++i) {
+        double sum = 0.0;
+        int count = 0;
+        for (int j = i - 1; j <= i + 1; ++j) {
+            if (j < 0 || j >= bins) {
+                continue;
+            }
+            sum += fraction[j];
+            ++count;
+        }
+        smoothed[i] = (count > 0) ? sum / count : 0.0;
+    }
+
+    // ── Center red evidence (hard requirement) ────────────────────────────
+    const double center_red_fraction =
+        center_total > 0
+            ? static_cast<double>(center_red) /
+                  static_cast<double>(center_total)
+            : 0.0;
+    if (center_red_fraction < config.ring_center_red_min) {
+        return 0.0;  // center is not red → not a concentric bullseye
+    }
+
+    // ── Hysteresis RED / NON_RED / UNKNOWN → compressed segments ──────────
+    enum class State { kUnknown, kRed, kNonRed };
+
+    std::vector<State> segments;
+    State prev = State::kUnknown;
+    for (int i = 0; i < bins; ++i) {
+        State s = State::kUnknown;
+        if (smoothed[i] >= config.ring_red_high) {
+            s = State::kRed;
+        } else if (smoothed[i] <= config.ring_red_low) {
+            s = State::kNonRed;
+        }
+        if (s == State::kUnknown) {
+            continue;  // UNKNOWN does not create a transition
+        }
+        if (s != prev) {
+            segments.push_back(s);
+            prev = s;
+        }
+    }
+
+    const int transitions = static_cast<int>(segments.size()) - 1;
+    const bool first_is_red =
+        !segments.empty() && segments.front() == State::kRed;
+
+    if (transitions < config.ring_min_transitions) {
+        return 0.0;  // not enough red/non-red alternation
+    }
+    if (!first_is_red) {
+        return 0.0;  // the center band must be RED
+    }
+
+    // ── Outer non-red evidence (soft penalty) ─────────────────────────────
+    const double outer_red_fraction =
+        outer_total > 0
+            ? static_cast<double>(outer_red) /
+                  static_cast<double>(outer_total)
+            : 0.0;
+
+    // ── ring_score (soft combination of the four evidence terms) ──────────
+    const double center_q = std::clamp(center_red_fraction, 0.0, 1.0);
+    const double transition_q = std::clamp(
+        static_cast<double>(transitions) /
+            static_cast<double>(config.ring_min_transitions),
+        0.0, 1.0);
+    const double alternate_q = first_is_red ? 1.0 : 0.0;
+    const double outer_q = std::clamp(
+        1.0 - outer_red_fraction / std::max(config.ring_outer_red_max, 1e-6),
+        0.0, 1.0);
+
+    const double ring_score =
+        0.25 * center_q + 0.35 * transition_q +
+        0.20 * alternate_q + 0.20 * outer_q;
+
+    return std::clamp(ring_score, 0.0, 1.0);
+}
+
 }  // namespace
 
 TraditionalTargetDetector::TraditionalTargetDetector(
@@ -320,6 +527,29 @@ TraditionalTargetDetector::detect(const cv::Mat& bgr_image) {
             have_bullseye_center ? bullseye_center : cv::Point2f{};
         observation.bullseye_valid = bullseye_valid;
 
+        // ── Production hard gates ─────────────────────────────────────────
+        if (config_.require_bullseye && !bullseye_valid) {
+            continue;
+        }
+        if (config_.require_valid_corners && !corners_valid) {
+            continue;
+        }
+
+        // ── Stage 2: concentric-ring verification ────────────────────────
+        double ring_score = 0.0;
+        if (config_.ring_pattern_enabled) {
+            if (!corners_valid) {
+                // A real quadrilateral is required to perspective-normalize
+                // the board; minAreaRect fallback corners are not valid here.
+                continue;
+            }
+            ring_score =
+                computeRingScore(bgr_image, observation.corners, config_);
+            if (ring_score < config_.min_ring_score) {
+                continue;
+            }
+        }
+
         // ── Color score ──────────────────────────────────────────────────
         double red_area_quality = 0.0;
         if (config_.min_red_area_ratio <= 1e-9) {
@@ -340,19 +570,31 @@ TraditionalTargetDetector::detect(const cv::Mat& bgr_image) {
         const double color_score =
             std::sqrt(red_area_quality * center_quality);
 
-        // ── Geometry + color fusion ──────────────────────────────────────
+        // ── Geometry + color + ring fusion ───────────────────────────────
         const double geometry_weight =
             std::max(0.0, static_cast<double>(config_.geometry_weight));
         const double color_weight =
             std::max(0.0, static_cast<double>(config_.color_weight));
-        const double weight_sum = geometry_weight + color_weight;
+        // The ring weight only participates when the ring verifier is
+        // enabled; otherwise ring evidence is undefined and must not dilute
+        // the normalized score.
+        const double ring_weight = config_.ring_pattern_enabled
+                                       ? std::max(0.0, static_cast<double>(
+                                                           config_.ring_weight))
+                                       : 0.0;
+        const double weight_sum =
+            geometry_weight + color_weight + ring_weight;
 
         double cv_score = 0.0;
         if (weight_sum > 1e-6) {
             cv_score = (geometry_weight * geometry_score +
-                        color_weight * color_score) /
+                        color_weight * color_score +
+                        ring_weight * ring_score) /
                        weight_sum;
         } else {
+            // Defensive fallback; config validation requires a positive
+            // weight, so this branch is only reachable via a hand-built
+            // config object.
             cv_score = geometry_score;
         }
         cv_score = std::clamp(cv_score, 0.0, 1.0);
