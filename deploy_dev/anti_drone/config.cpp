@@ -634,6 +634,8 @@ AntiDroneConfig loadAntiDroneConfig(
         config.runtime.log_every_n_frames =
             rt["log_every_n_frames"].as<int>(
                 config.runtime.log_every_n_frames);
+        config.runtime.show_preview =
+            rt["show_preview"].as<bool>(config.runtime.show_preview);
     }
 
     validateRuntimeConfig(config.runtime);

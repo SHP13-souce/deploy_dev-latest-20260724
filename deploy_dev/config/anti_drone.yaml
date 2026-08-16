@@ -86,6 +86,12 @@ camera:
 runtime:
   log_every_n_frames: 10
 
+  # When true, the production app opens a real-time preview window and
+  # overlays the current detector output on a clone of each frame. The
+  # processing chain and telemetry are unaffected. Set this to true for the
+  # on-site visual debugging window; leave false (or omit) for headless runs.
+  show_preview: false
+
 # ------------------------------------------------------------
 # Vision telemetry transport
 #
