@@ -78,6 +78,19 @@ std::vector<cv::Point3f> makeObjectPoints(int board_cols,
     return points;
 }
 
+// Normalizes calibrateCamera()'s distortion coefficients — which may be a 1x5
+// row, a 5x1 column, or another container — into a guaranteed 1xN CV_64F row
+// vector. Returns an empty Mat when the source is not a valid CV_64F vector of
+// at least 5 coefficients, so the caller reports a clear error instead of
+// relying on any particular row/column layout.
+cv::Mat safeDistCoeffs(const cv::Mat& dist) {
+    cv::Mat row = dist.reshape(1, 1);
+    if (row.empty() || row.type() != CV_64F || row.total() < 5) {
+        return cv::Mat();
+    }
+    return row;
+}
+
 // Scan the existing frame_*.png files so a new run continues from the highest
 // index + 1 instead of overwriting previous images.
 std::size_t scanNextFrameNumber(const std::string& frames_dir) {
@@ -198,6 +211,18 @@ bool writeResultYaml(const std::string& path,
                      int board_rows,
                      double square_size_m,
                      std::size_t sample_count) {
+    const std::filesystem::path out_path(path);
+    const std::filesystem::path parent = out_path.parent_path();
+    if (!parent.empty()) {
+        std::error_code dir_ec;
+        std::filesystem::create_directories(parent, dir_ec);
+        if (dir_ec) {
+            std::cerr << "Failed to create output directory " << parent
+                      << ": " << dir_ec.message() << '\n';
+            return false;
+        }
+    }
+
     std::ofstream out(path);
     if (!out) {
         std::cerr << "Failed to write YAML: " << path << '\n';
@@ -526,6 +551,18 @@ int main(int argc, char** argv) {
                         continue;
                     }
 
+                    // Normalize the distortion vector once, up front, so the
+                    // reprojection, terminal report, YAML and undistort all
+                    // consume a guaranteed 1xN CV_64F row vector. This never
+                    // depends on whether calibrateCamera returned 1x5 or 5x1.
+                    const cv::Mat dist_row = safeDistCoeffs(dist);
+                    if (dist_row.empty()) {
+                        std::cerr << "Calibration failed: calibrateCamera "
+                                     "returned an unexpected distortion "
+                                     "coefficient vector.\n";
+                        continue;
+                    }
+
                     // Per-sample RMS reprojection error (in addition to the
                     // value calibrateCamera returns). Lets the operator spot
                     // individually bad images; nothing is auto-deleted.
@@ -535,7 +572,8 @@ int main(int argc, char** argv) {
                         for (std::size_t i = 0; i < image_points.size(); ++i) {
                             std::vector<cv::Point2f> projected;
                             cv::projectPoints(object_points[i], rvecs[i],
-                                              tvecs[i], K, dist, projected);
+                                              tvecs[i], K, dist_row,
+                                              projected);
                             double sq_sum = 0.0;
                             for (std::size_t j = 0; j < projected.size();
                                  ++j) {
@@ -563,7 +601,7 @@ int main(int argc, char** argv) {
                     }
 
                     camera_matrix = K.clone();
-                    dist_coeffs = dist.clone();
+                    dist_coeffs = dist_row.clone();
                     opencv_rms_px = opencv_rms;
                     mean_reproj =
                         sum_err / static_cast<double>(image_points.size());
