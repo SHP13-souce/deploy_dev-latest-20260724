@@ -1,10 +1,12 @@
 #include "anti_drone/camera_extrinsic_calibration_math.hpp"
+#include "anti_drone/camera_extrinsic_calibration_validation.hpp"
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -217,6 +219,76 @@ void testSyntheticHandEye() {
           "consistency rotation RMS ~ 0");
 }
 
+// ── Test 4: gimbal yaw/pitch signs must be exactly +1 or -1 ────────────────
+void testGimbalSignValidation() {
+    using hnu25::anti_drone::requireGimbalSign;
+
+    bool accepted = true;
+    try {
+        requireGimbalSign(1.0, "yaw_sign");
+        requireGimbalSign(-1.0, "pitch_sign");
+    } catch (const std::exception&) {
+        accepted = false;
+    }
+    check(accepted, "+1.0 and -1.0 signs are accepted");
+
+    const auto throwsWith = [](double v, const char* name,
+                               const char* expected_msg) {
+        try {
+            requireGimbalSign(v, name);
+        } catch (const std::runtime_error& e) {
+            return std::string(e.what()) == expected_msg;
+        } catch (...) {
+            return false;
+        }
+        return false;
+    };
+
+    check(throwsWith(0.0, "yaw_sign", "yaw_sign must be +1 or -1"),
+          "yaw_sign=0 rejected with exact message");
+    check(throwsWith(0.5, "yaw_sign", "yaw_sign must be +1 or -1"),
+          "yaw_sign=0.5 rejected with exact message");
+    check(throwsWith(2.0, "yaw_sign", "yaw_sign must be +1 or -1"),
+          "yaw_sign=2.0 rejected with exact message");
+    check(throwsWith(-2.0, "yaw_sign", "yaw_sign must be +1 or -1"),
+          "yaw_sign=-2.0 rejected with exact message");
+    check(throwsWith(0.0, "pitch_sign", "pitch_sign must be +1 or -1"),
+          "pitch_sign=0 rejected with exact message");
+}
+
+// ── Test 5: calibration resolution must be both-present or both-absent ──────
+void testResolutionValidation() {
+    using hnu25::anti_drone::validateCalibrationResolution;
+
+    const auto accepts = [](bool hw, bool hh, int w, int h) {
+        try {
+            validateCalibrationResolution(hw, hh, w, h);
+        } catch (...) {
+            return false;
+        }
+        return true;
+    };
+    const auto rejects = [](bool hw, bool hh, int w, int h) {
+        try {
+            validateCalibrationResolution(hw, hh, w, h);
+        } catch (...) {
+            return true;
+        }
+        return false;
+    };
+
+    check(accepts(false, false, 0, 0), "both absent accepted");
+    check(accepts(true, true, 1920, 1080), "both > 0 accepted");
+    check(accepts(true, true, 0, 0), "both present as 0 accepted");
+
+    check(rejects(true, false, 1920, 0), "only width rejected");
+    check(rejects(false, true, 0, 1080), "only height rejected");
+    check(rejects(true, true, 1920, 0), "width>0 height<=0 rejected");
+    check(rejects(true, true, 0, 1080), "height>0 width<=0 rejected");
+    check(rejects(true, true, -1, 1080), "negative width rejected");
+    check(rejects(true, true, 1920, -1), "negative height rejected");
+}
+
 }  // namespace
 
 int main() {
@@ -228,6 +300,8 @@ int main() {
         {"axis rotation matrices", testAxisRotation},
         {"yaw/pitch axis and order", testAxisAndOrder},
         {"synthetic hand-eye direction", testSyntheticHandEye},
+        {"gimbal sign validation", testGimbalSignValidation},
+        {"calibration resolution validation", testResolutionValidation},
     };
 
     for (const auto& c : cases) {
