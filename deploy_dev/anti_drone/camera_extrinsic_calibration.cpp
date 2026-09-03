@@ -1,4 +1,5 @@
 #include "anti_drone/camera_extrinsic_calibration_math.hpp"
+#include "anti_drone/camera_extrinsic_calibration_validation.hpp"
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -140,12 +141,20 @@ Intrinsics loadIntrinsics(const std::string& path) {
     }
     intrinsics.distort_coeffs = dist;
 
-    if (const YAML::Node w = root["calibration_image_width"]) {
-        intrinsics.calibration_image_width = w.as<int>();
+    const bool has_width = static_cast<bool>(root["calibration_image_width"]);
+    const bool has_height = static_cast<bool>(root["calibration_image_height"]);
+    int width = 0;
+    int height = 0;
+    if (has_width) {
+        width = root["calibration_image_width"].as<int>();
     }
-    if (const YAML::Node h = root["calibration_image_height"]) {
-        intrinsics.calibration_image_height = h.as<int>();
+    if (has_height) {
+        height = root["calibration_image_height"].as<int>();
     }
+    hnu25::anti_drone::validateCalibrationResolution(has_width, has_height,
+                                                     width, height);
+    intrinsics.calibration_image_width = width;
+    intrinsics.calibration_image_height = height;
 
     return intrinsics;
 }
@@ -243,7 +252,9 @@ KinematicsConfig loadKinematics(const std::string& path) {
     }
 
     cfg.kin.yaw_sign = require(root, "yaw_sign").as<double>();
+    hnu25::anti_drone::requireGimbalSign(cfg.kin.yaw_sign, "yaw_sign");
     cfg.kin.pitch_sign = require(root, "pitch_sign").as<double>();
+    hnu25::anti_drone::requireGimbalSign(cfg.kin.pitch_sign, "pitch_sign");
     cfg.kin.yaw_zero_deg = require(root, "yaw_zero_deg").as<double>();
     cfg.kin.pitch_zero_deg = require(root, "pitch_zero_deg").as<double>();
 
@@ -260,12 +271,10 @@ KinematicsConfig loadKinematics(const std::string& path) {
     }
     cfg.kin.t_gimbal2base_m = cv::Vec3d(t[0], t[1], t[2]);
 
-    for (double v : {cfg.kin.yaw_sign, cfg.kin.pitch_sign,
-                     cfg.kin.yaw_zero_deg, cfg.kin.pitch_zero_deg}) {
+    for (double v : {cfg.kin.yaw_zero_deg, cfg.kin.pitch_zero_deg}) {
         if (!std::isfinite(v)) {
             throw std::runtime_error(
-                "yaw_sign / pitch_sign / yaw_zero_deg / pitch_zero_deg must "
-                "be finite");
+                "yaw_zero_deg / pitch_zero_deg must be finite");
         }
     }
 
@@ -895,13 +904,16 @@ int main(int argc, char** argv) {
                     pitch_span_deg, R_camera2gimbal, t_camera2gimbal,
                     mean_pnp_rms, max_pnp_rms, consistency);
 
-        if (writeResultYaml(output_path, kinematics.handeye_method_name,
-                            samples_valid, R_camera2gimbal, t_camera2gimbal,
-                            mean_pnp_rms, max_pnp_rms, consistency,
-                            yaw_span_deg, pitch_span_deg)) {
-            std::cout << "\nWrote " << output_path << '\n';
+        if (!writeResultYaml(output_path, kinematics.handeye_method_name,
+                             samples_valid, R_camera2gimbal, t_camera2gimbal,
+                             mean_pnp_rms, max_pnp_rms, consistency,
+                             yaw_span_deg, pitch_span_deg)) {
+            std::cerr << "ERROR: failed to write calibration result to "
+                      << output_path << '\n';
+            return 2;
         }
 
+        std::cout << "\nWrote " << output_path << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Camera extrinsic calibration failed: " << error.what()
