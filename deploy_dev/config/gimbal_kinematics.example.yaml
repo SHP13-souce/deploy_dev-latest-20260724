@@ -1,0 +1,41 @@
+# Gimbal kinematics definition for the camera -> gimbal extrinsic
+# (hand-eye) calibration tool.
+#
+# WARNING: these are EXAMPLE values only. The mechanical yaw / pitch axis
+# directions and sign conventions have NOT been confirmed on real hardware.
+# The calibration executable REQUIRES every field below to be present and will
+# NOT fall back to a "reasonable" default for any of them.
+
+# Rotation axis of the gimbal yaw stage, in the base frame. One of: x, y, z.
+yaw_axis: z
+
+# Rotation axis of the gimbal pitch stage, in the moving (yaw-rotated) frame.
+# One of: x, y, z.
+pitch_axis: y
+
+# Combination order. This version supports only "yaw_pitch", defined as
+#
+#   R_gimbal2base = R_yaw * R_pitch
+#
+# i.e. yaw is applied first (outermost) and the pitch axis lives in the
+# yaw-rotated (moving) frame.
+rotation_order: yaw_pitch
+
+# Sign applied to the recorded angle:
+#   yaw   = yaw_sign   * (yaw_deg   - yaw_zero_deg)
+#   pitch = pitch_sign * (pitch_deg - pitch_zero_deg)
+yaw_sign: 1.0
+pitch_sign: 1.0
+
+# Zero offset (degrees) subtracted from the recorded angle before scaling.
+yaw_zero_deg: 0.0
+pitch_zero_deg: 0.0
+
+# Fixed translation of the gimbal frame origin in the base frame (meters).
+# The base-frame origin is chosen at the gimbal reference rotation center, so
+# the first version uses [0, 0, 0].
+t_gimbal2base_m:
+  [0.0, 0.0, 0.0]
+
+# Hand-eye algorithm. One of: TSAI, PARK, HORAUD, ANDREFF, DANIILIDIS.
+handeye_method: PARK
