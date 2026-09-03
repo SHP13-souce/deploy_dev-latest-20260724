@@ -111,6 +111,24 @@ add_test(
 )
 
 add_executable(
+    anti_drone_extrinsic_calibration_test
+    anti_drone_extrinsic_calibration_test.cpp
+)
+
+target_link_libraries(
+    anti_drone_extrinsic_calibration_test
+    PRIVATE
+    anti_drone_extrinsic_math
+    opencv_core
+    opencv_calib3d
+)
+
+add_test(
+    NAME anti_drone_extrinsic_calibration
+    COMMAND anti_drone_extrinsic_calibration_test
+)
+
+add_executable(
     anti_drone_vision_solution_test
     anti_drone_vision_solution_test.cpp
 )

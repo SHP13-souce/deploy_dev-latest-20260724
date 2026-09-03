@@ -26,6 +26,23 @@ target_link_libraries(anti_drone PUBLIC
     yaml-cpp
 )
 
+# Pure-math helpers for the camera -> gimbal (hand-eye) extrinsic calibration
+# tool. Deliberately a separate, dependency-free library: it must not pull in
+# any runtime / telemetry / serial / camera dependency.
+add_library(anti_drone_extrinsic_math STATIC
+    camera_extrinsic_calibration_math.cpp
+)
+
+target_include_directories(anti_drone_extrinsic_math PUBLIC
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(anti_drone_extrinsic_math PUBLIC
+    opencv_core
+    opencv_calib3d
+)
+
 add_executable(
     anti_drone_image_preview
     image_preview.cpp
@@ -151,6 +168,32 @@ target_link_libraries(
     opencv_calib3d
     opencv_imgcodecs
     opencv_highgui
+)
+
+add_executable(
+    anti_drone_camera_extrinsic_calibration
+    camera_extrinsic_calibration.cpp
+)
+
+target_include_directories(
+    anti_drone_camera_extrinsic_calibration
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+# Offline tool: images are pre-captured, so no camera / MVS / highgui / serial
+# dependency is required here.
+target_link_libraries(
+    anti_drone_camera_extrinsic_calibration
+    PRIVATE
+    anti_drone
+    anti_drone_extrinsic_math
+    opencv_core
+    opencv_imgproc
+    opencv_imgcodecs
+    opencv_calib3d
+    yaml-cpp
 )
 
 add_executable(
