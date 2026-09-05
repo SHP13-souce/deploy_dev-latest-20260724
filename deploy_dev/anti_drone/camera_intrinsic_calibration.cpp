@@ -428,17 +428,38 @@ int main(int argc, char** argv) {
                 fps_window_start = now;
             }
 
-            // ── Chessboard detection (raw native resolution, never resized)─
+            // ── Chessboard detection (on a downscaled gray image)─
             cv::Mat gray;
             cv::cvtColor(frame.image, gray, cv::COLOR_BGR2GRAY);
 
-            std::vector<cv::Point2f> corners;
-            const bool found = cv::findChessboardCorners(
-                gray, cv::Size(board_cols, board_rows), corners,
-                cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE);
+            const double detection_scale =
+                std::min(1.0, 960.0 / static_cast<double>(gray.cols));
 
+            cv::Mat detection_gray;
+            if (detection_scale < 1.0) {
+                cv::resize(gray, detection_gray, cv::Size(), detection_scale,
+                           detection_scale, cv::INTER_AREA);
+            } else {
+                detection_gray = gray;
+            }
+
+            std::vector<cv::Point2f> corners_small;
+            const bool found = cv::findChessboardCorners(
+                detection_gray, cv::Size(board_cols, board_rows), corners_small,
+                cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE |
+                    cv::CALIB_CB_FAST_CHECK);
+
+            std::vector<cv::Point2f> corners;
             bool detected = false;
             if (found) {
+                // Map the downscaled corners back to full-resolution image
+                // coordinates, then refine at full resolution so the sample
+                // points keep full calibration accuracy.
+                corners.resize(corners_small.size());
+                for (std::size_t i = 0; i < corners_small.size(); ++i) {
+                    corners[i].x = corners_small[i].x / detection_scale;
+                    corners[i].y = corners_small[i].y / detection_scale;
+                }
                 const cv::TermCriteria criteria(
                     cv::TermCriteria::EPS | cv::TermCriteria::MAX_ITER, 30,
                     0.001);
@@ -476,6 +497,14 @@ int main(int argc, char** argv) {
             }
             putLine("Image: " + std::to_string(frame.image.cols) + " x " +
                     std::to_string(frame.image.rows));
+            putLine("Detection image: " + std::to_string(detection_gray.cols) +
+                    " x " + std::to_string(detection_gray.rows));
+            {
+                std::ostringstream line;
+                line << "Detection scale: " << std::fixed
+                     << std::setprecision(3) << detection_scale;
+                putLine(line.str());
+            }
             putLine("Board: " + std::to_string(board_cols) + " x " +
                     std::to_string(board_rows));
             putLine(std::string("Detected: ") + (detected ? "YES" : "NO"));
