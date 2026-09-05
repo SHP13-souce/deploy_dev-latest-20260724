@@ -127,7 +127,8 @@ bool solveHandEye(const std::vector<cv::Matx33d>& R_gripper2base,
     cv::Mat Rcg;
     cv::Mat tcg;
     try {
-        cv::calibrateHandEye(Rg, tg, Rt, tt, Rcg, tcg, method);
+        cv::calibrateHandEye(Rg, tg, Rt, tt, Rcg, tcg,
+                             static_cast<cv::HandEyeCalibrationMethod>(method));
     } catch (const cv::Exception&) {
         return false;
     }
