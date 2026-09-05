@@ -97,8 +97,8 @@ vision_compensation:
 # means "use the first camera the MVS SDK discovers".
 camera:
   serial_number: ""
-  exposure: 3000.0
-  gain: 0.0
+  exposure: 14000.0
+  gain: 4.0
   frame_rate: 100.0
   frame_timeout_ms: 1000
   max_consecutive_timeouts: 5
