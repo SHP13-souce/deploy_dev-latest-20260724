@@ -1,0 +1,20 @@
+# Camera intrinsic calibration result (standalone).
+# NOT a full production config: R_camera2gimbal / t_camera2gimbal
+# are not calibrated yet and are intentionally absent. Merge these
+# intrinsics into anti_drone.yaml only after real extrinsic
+# calibration is completed.
+camera_matrix:
+  [1797.11324541659, 0.0, 783.818791307953,
+   0.0, 1796.31272044474, 638.661817783799,
+   0.0, 0.0, 1.0]
+distort_coeffs:
+  [-0.0460886241850456, 0.0844452797387386, 0.00576477853623981, -0.00170951695883391, -0.0249786649378034]
+calibration_image_width: 1624
+calibration_image_height: 1240
+opencv_rms_px: 0.2327699824116
+mean_reprojection_error_px: 0.231494830064627
+max_reprojection_error_px: 0.287653055371227
+board_cols_inner: 6
+board_rows_inner: 8
+square_size_m: 0.029
+sample_count: 30
