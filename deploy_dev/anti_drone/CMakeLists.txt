@@ -196,6 +196,37 @@ target_link_libraries(
     yaml-cpp
 )
 
+# Guided, semi-automatic acquisition layer for the camera -> gimbal extrinsic
+# calibration. It opens the live Hik camera (camera), loads the production
+# config (anti_drone), reads intrinsics / kinematics (yaml-cpp), and spawns the
+# offline solver above as a subprocess. It needs highgui for the live preview.
+# It deliberately does NOT link anti_drone_telemetry_serial: this tool never
+# opens a serial port or sends any gimbal / control data.
+add_executable(
+    anti_drone_camera_extrinsic_guided_calibration
+    camera_extrinsic_guided_calibration.cpp
+)
+
+target_include_directories(
+    anti_drone_camera_extrinsic_guided_calibration
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+    anti_drone_camera_extrinsic_guided_calibration
+    PRIVATE
+    anti_drone
+    camera
+    opencv_core
+    opencv_imgproc
+    opencv_imgcodecs
+    opencv_calib3d
+    opencv_highgui
+    yaml-cpp
+)
+
 add_executable(
     anti_drone_sequence_preview
     sequence_preview.cpp
