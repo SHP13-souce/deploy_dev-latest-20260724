@@ -68,6 +68,7 @@ constexpr double kRadToDeg = 180.0 / kPi;
 constexpr double kMaxCapturePnpRmsPx = 1.0;   // reject pose if PnP RMS above this
 constexpr double kStableWindowMs = 400.0;     // pose-history window for stability
 constexpr int kStableMinSamples = 8;          // min valid poses in the window
+constexpr double kStableMinDurationMs = 300.0; // min history time span to trust "stable"
 constexpr double kStableTranslationM = 0.005; // max tvec spread while "stopped"
 constexpr double kStableRotationDeg = 0.30;   // max R spread while "stopped"
 constexpr double kMoveTranslationM = 0.02;    // pose must move this far to re-arm
@@ -229,6 +230,84 @@ Intrinsics loadIntrinsics(const std::string& path) {
     return intr;
 }
 
+// ── Gimbal kinematics strict validation ────────────────────────────────────
+// The guided tool checks every field the offline solver will later consume,
+// BEFORE the camera opens, so a bad kinematics file fails fast instead of after
+// N samples. This only checks presence + value legality; it does NOT reimplement
+// the solver's hand-eye math (the solver remains the authority on the meaning of
+// yaw/pitch axes, signs, order, and method).
+void validateKinematicsYaml(const std::string& path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec) {
+        throw std::runtime_error("gimbal_kinematics.yaml not found: " + path);
+    }
+
+    const YAML::Node root = YAML::LoadFile(path);
+    if (!root.IsDefined() || root.IsNull()) {
+        throw std::runtime_error("gimbal_kinematics.yaml is empty or invalid");
+    }
+
+    const auto require = [&root](const char* key) {
+        const YAML::Node node = root[key];
+        if (!node) {
+            throw std::runtime_error(
+                std::string("gimbal_kinematics.yaml is missing required "
+                            "field: ") +
+                key);
+        }
+        return node;
+    };
+
+    const auto checkAxis = [](const std::string& value, const char* key) {
+        if (value != "x" && value != "y" && value != "z") {
+            throw std::runtime_error(std::string(key) +
+                                     " must be \"x\", \"y\", or \"z\"");
+        }
+    };
+    checkAxis(require("yaw_axis").as<std::string>(), "yaw_axis");
+    checkAxis(require("pitch_axis").as<std::string>(), "pitch_axis");
+
+    const std::string order = require("rotation_order").as<std::string>();
+    if (order != "yaw_pitch") {
+        throw std::runtime_error(
+            "rotation_order must be \"yaw_pitch\" (only supported order)");
+    }
+
+    const double yaw_sign = require("yaw_sign").as<double>();
+    if (yaw_sign != 1.0 && yaw_sign != -1.0) {
+        throw std::runtime_error("yaw_sign must be +1 or -1");
+    }
+    const double pitch_sign = require("pitch_sign").as<double>();
+    if (pitch_sign != 1.0 && pitch_sign != -1.0) {
+        throw std::runtime_error("pitch_sign must be +1 or -1");
+    }
+
+    const double yaw_zero_deg = require("yaw_zero_deg").as<double>();
+    const double pitch_zero_deg = require("pitch_zero_deg").as<double>();
+    if (!std::isfinite(yaw_zero_deg) || !std::isfinite(pitch_zero_deg)) {
+        throw std::runtime_error("yaw_zero_deg / pitch_zero_deg must be finite");
+    }
+
+    const std::vector<double> t =
+        require("t_gimbal2base_m").as<std::vector<double>>();
+    if (t.size() != 3) {
+        throw std::runtime_error("t_gimbal2base_m must have exactly 3 elements");
+    }
+    for (double v : t) {
+        if (!std::isfinite(v)) {
+            throw std::runtime_error("t_gimbal2base_m must be finite");
+        }
+    }
+
+    const std::string method = require("handeye_method").as<std::string>();
+    if (method != "TSAI" && method != "PARK" && method != "HORAUD" &&
+        method != "ANDREFF" && method != "DANIILIDIS") {
+        throw std::runtime_error(
+            "handeye_method must be one of TSAI, PARK, HORAUD, ANDREFF, "
+            "DANIILIDIS");
+    }
+}
+
 void printUsage() {
     std::cout << "Usage:\n"
               << "  anti_drone_camera_extrinsic_guided_calibration "
@@ -379,25 +458,13 @@ int main(int argc, char** argv) {
     try {
         std::cout << "=== Guided Camera -> Gimbal Extrinsic Calibration ===\n\n";
 
-        // ── Gimbal kinematics: verify it exists and loads, but do NOT parse ─
-        // its mechanical meaning here (the offline solver owns that contract).
-        {
-            std::error_code ec;
-            if (!std::filesystem::exists(kinematics_yaml, ec) || ec) {
-                std::cerr << "gimbal_kinematics.yaml not found: "
-                          << kinematics_yaml << '\n';
-                return 2;
-            }
-            try {
-                const YAML::Node kin_root = YAML::LoadFile(kinematics_yaml);
-                if (!kin_root.IsDefined() || kin_root.IsNull()) {
-                    throw std::runtime_error("empty YAML");
-                }
-            } catch (const std::exception& error) {
-                std::cerr << "gimbal_kinematics.yaml is invalid ("
-                          << kinematics_yaml << "): " << error.what() << '\n';
-                return 2;
-            }
+        // ── Gimbal kinematics: strict validation before the camera opens ───
+        try {
+            validateKinematicsYaml(kinematics_yaml);
+        } catch (const std::exception& error) {
+            std::cerr << "gimbal_kinematics.yaml is invalid: " << error.what()
+                      << '\n';
+            return 2;
         }
 
         // ── Intrinsics (used by this tool for live PnP) ─────────────────────
@@ -587,8 +654,11 @@ int main(int argc, char** argv) {
                 std::cout << "Frame timeout " << consecutive_timeouts << "/"
                           << max_consecutive_timeouts << '\n';
                 if (consecutive_timeouts >= max_consecutive_timeouts) {
-                    std::cout << "Too many consecutive frame timeouts; "
-                                 "stopping.\n";
+                    std::cerr << "ERROR: too many consecutive frame timeouts ("
+                              << consecutive_timeouts
+                              << "). Stopping acquisition; session data is "
+                                 "preserved and the solver will NOT run.\n";
+                    stopped_no_solve = true;
                     break;
                 }
                 continue;
@@ -699,15 +769,21 @@ int main(int argc, char** argv) {
                     const cv::Matx33d R = rvecToMatx(pnp.rvec);
                     history.push_back(PoseStamp{now, pnp.tvec, R});
                     if (static_cast<int>(history.size()) >= kStableMinSamples) {
-                        stable = true;
-                        const PoseStamp& ref = history.front();
-                        for (const PoseStamp& p : history) {
-                            const double dt = cv::norm(p.tvec - ref.tvec);
-                            const double dr = rotationErrorDeg(p.R, ref.R);
-                            if (dt > kStableTranslationM ||
-                                dr > kStableRotationDeg) {
-                                stable = false;
-                                break;
+                        const double span_ms =
+                            std::chrono::duration<double, std::milli>(
+                                history.back().t - history.front().t)
+                                .count();
+                        if (span_ms >= kStableMinDurationMs) {
+                            stable = true;
+                            const PoseStamp& ref = history.front();
+                            for (const PoseStamp& p : history) {
+                                const double dt = cv::norm(p.tvec - ref.tvec);
+                                const double dr = rotationErrorDeg(p.R, ref.R);
+                                if (dt > kStableTranslationM ||
+                                    dr > kStableRotationDeg) {
+                                    stable = false;
+                                    break;
+                                }
                             }
                         }
                     }
